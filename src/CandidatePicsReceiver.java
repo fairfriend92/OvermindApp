@@ -1,9 +1,12 @@
 import java.io.IOException;
+import java.io.ObjectInputStream;
 import java.net.ServerSocket;
+import java.net.Socket;
 
 public class CandidatePicsReceiver extends Thread {
 	
-	static public String serverIP = null;
+	private static String serverIP = null;
+	private static boolean shutdown = false;
 	
 	@Override
 	public void run() {
@@ -26,6 +29,23 @@ public class CandidatePicsReceiver extends Thread {
         	e.printStackTrace();
 		}		
 		assert serverSocket != null;
+	
+		ObjectInputStream socketInputStream = null;
+		
+		while(!shutdown) {			
+			/* Accept connections from the socket and read the Candidate objects from them */
+			com.example.muondetector.Candidate candidate = null;
+			try {				
+				Socket clientSocket = serverSocket.accept(); // Accept connection
+				clientSocket.setTrafficClass(Constants.IPTOS_RELIABILITY);
+				socketInputStream = new ObjectInputStream(clientSocket.getInputStream()); // Establish a stream from which the object can be read
+				candidate = (com.example.muondetector.Candidate) socketInputStream.readObject(); // Read the candidate object
+			} catch (IOException | ClassNotFoundException e) {
+	        	e.printStackTrace();
+			}			
+			assert candidate != null;
+			System.out.println(candidate.particleTag);						
+		}
 		
 	}
 
