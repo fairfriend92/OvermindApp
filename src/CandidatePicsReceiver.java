@@ -51,8 +51,7 @@ public class CandidatePicsReceiver extends Thread {
 	        	e.printStackTrace();
 			}		
 					
-		}
-		
+		}		
 	}
 	
 	/*
@@ -84,7 +83,7 @@ public class CandidatePicsReceiver extends Thread {
 	}
 	
 	/*
-	 * Create grayscale luminance maps from the pics sent by the smartphones. Then save the map the
+	 * Create grayscale luminance maps from the pics sent by the smartphones. Then save the map and the
 	 * accompanying tag in the local storage.
 	 */
 	
@@ -118,26 +117,31 @@ public class CandidatePicsReceiver extends Thread {
 			// Save the map and the tag
 			String absolutePath = new File("").getAbsolutePath();
 			
-			if (tag == Constants.UNDETERMINED) {
-				// Get the directory where to save the untagged pic 
-				String untaggedPicsPath = absolutePath.concat("/resources/pics/untagged");
-				File untaggedPicsDir = new File(untaggedPicsPath);
-				
-				// Write a new file the object containing the grayscale map of the luminance and the particle tag
-				try {
-					File untaggedPic = File.createTempFile("" + pixels.hashCode(), ".gcnd", untaggedPicsDir); // Create a new file
-					FileOutputStream fileOutputStream = new FileOutputStream(untaggedPic); // Get a stream to write into the file
-					ObjectOutputStream objectOutputStream = new ObjectOutputStream(fileOutputStream); // Get a stream to write an object
-					objectOutputStream.writeObject(new GrayscaleCandidate(grayscalePixels, tag)); // Write the object
-					
-					// Close the streams
-					fileOutputStream.close();
-					objectOutputStream.close();
-				} catch (IOException e) {
-					e.printStackTrace();
-				}				
+			/* Save a different directory path in the string depending on the particle tag */
+			String tagDirectoryPath = ""; 
+			switch (tag) {
+				case Constants.UNDETERMINED:
+					tagDirectoryPath = "/resources/pics/untagged";
+					break;
 			}
 			
+			// Get the directory where to save the untagged pic 
+			String picsPath = absolutePath.concat(tagDirectoryPath);
+			File picsDirectory = new File(picsPath);
+			
+			// Write in a new file the object containing the grayscale map of the luminance and the particle tag
+			try {
+				File picFile = File.createTempFile("" + pixels.hashCode(), ".gcnd", picsDirectory); // Create a new file
+				FileOutputStream fileOutputStream = new FileOutputStream(picFile); // Get a stream to write into the file
+				ObjectOutputStream objectOutputStream = new ObjectOutputStream(fileOutputStream); // Get a stream to write an object
+				objectOutputStream.writeObject(new GrayscaleCandidate(grayscalePixels, tag)); // Write the object
+				
+				// Close the streams
+				fileOutputStream.close();
+				objectOutputStream.close();
+			} catch (IOException e) {
+				e.printStackTrace();
+			}							
 		}		
 	}
 }
