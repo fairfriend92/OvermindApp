@@ -1,13 +1,20 @@
 import java.util.ArrayList;
 
-public class SpikesInputCreator {
+/**
+ * Class containing methods that pertain to the input made of spikes which is sent
+ * to the network. 
+ * @author rodolfo
+ *
+ */
+
+public class SpikeInputCreator {
 	
 	/**
 	 * Create a spike input from a map of pixel luminance
 	 */
 	
-	public static char[] createFromLuminance(float[] grayscalePixels) {
-		char[] spikeInput;
+	public static byte[] createFromLuminance(float[] grayscalePixels) {
+		byte[] spikeInput;
 		short lengthInBytes; // How many bytes are needed to represent the spike input?
 		
 		// Each float is the luminance of a pixel and each pixel corresponds to a synapse
@@ -20,7 +27,7 @@ public class SpikesInputCreator {
 		 * if it's greater than it, set the bit corresponding to the synapse.
 		 */
 		
-		spikeInput = new char[lengthInBytes];
+		spikeInput = new byte[lengthInBytes];
 		double randomLuminance = Math.random(); // Store a random number between 0 and 1				
 				
 		int index = 0; 

@@ -31,7 +31,7 @@ public class CandidatePicsReceiver extends Thread {
         /* Build the TCP socket */
         ServerSocket serverSocket = null;		
 		try {
-			serverSocket = new ServerSocket(Constants.SERVER_PORT);
+			serverSocket = new ServerSocket(Constants.MUON_DETECTOR_SERVER_PORT);
 		} catch (IOException e) {
         	e.printStackTrace();
 		}		
