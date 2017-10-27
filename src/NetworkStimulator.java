@@ -4,39 +4,74 @@ import java.net.DatagramSocket;
 import java.net.InetAddress;
 import java.net.SocketException;
 import java.net.UnknownHostException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.ArrayList;
+import java.util.concurrent.*;
+
+/**
+ * Class that contains methods to send an input to one or more layers of the
+ * neural network.
+ * @author rodolfo
+ *
+ */
 
 public class NetworkStimulator {
 	
-	public boolean stimulateWithLuminanceMap(int stimulationLength, int deltaTime, Node[] inputLayers, GrayscaleCandidate[] inputs) {		
+	/**
+	 * Send a luminance map as an input to the chosen input layers. 
+	 * Launch a separate thread for each layer to send the inputs. Then wait 
+	 * for the threads to finish their jobs before returning.  
+	 */
+	
+	public static boolean stimulateWithLuminanceMap(int stimulationLength, int deltaTime, Node[] inputLayers, GrayscaleCandidate[] inputs) {		
 		if (inputLayers.length != inputs.length) {
 			System.out.println("ERROR: number of inputs is different from number of input layers");
 			return false;
 		}
 		
-		// Create a service for the threads that send the inputs to the respectinve input layers
+		// Create a service for the threads that send the inputs to the respectinve input layers.
 		ExecutorService inputSenderService = Executors.newFixedThreadPool(inputs.length);
 		
-		for (Node inputLayer : inputLayers) {
+		// List of future objects used to signal when an inputSender thread is done.
+		ArrayList<Future<?>> inputSenderFutures = new ArrayList<Future<?>>(inputs.length);
+		
+		for (int index = 0; index < inputs.length; index++) {
 			// The input should be sent to a node only if this one is not being stimulated already.
-			if (inputLayer.isBeingStimulated()) {
-				System.out.println("Input layer with IP: " + inputLayer.terminal.ip + " is already being stimulated");
+			if (inputLayers[index].isBeingStimulated()) {
+				System.out.println("Input layer with IP: " + inputLayers[index].terminal.ip + " is already being stimulated");
 			} else {
-				
+				// For each inputLayer start a thread to stimulate it.
+				Future<?> inputSenderFuture = 
+						inputSenderService.submit(new InputSender(stimulationLength, deltaTime, inputLayers[index], inputs[index]));
+								
+				inputSenderFutures.add(inputSenderFuture);
 			}
+		}
+		
+		// Wait for all the InputSender threads to finish by retrieving their Future objects.		
+		try {
+			for (Future<?> inputSenderFuture : inputSenderFutures)
+				inputSenderFuture.get();
+		} catch (InterruptedException | ExecutionException e) {
+			System.out.println(e);
+			return false;
 		}
 		
 		return true;
 	}
 	
-	private class inputSender implements Runnable {
+	/**	 
+	 * The luminance map is first converted in a spike train whose length in units 
+	 * of time is determined by the length of the stimulation process and by the size of the bins. 
+	 * Then a new sample of the spike train is sent every deltaTime ms. 
+	 */
+	
+	private static class InputSender implements Runnable {
 		private int numOfIterations; // How many times should the input be sent to the network?
 		private Node inputLayer;
 		private GrayscaleCandidate input;
 		private int deltaTime;
 		
-		inputSender(int stimulationLength, int deltaTime, Node inputLayer, GrayscaleCandidate input) {
+		InputSender(int stimulationLength, int deltaTime, Node inputLayer, GrayscaleCandidate input) {
 			this.deltaTime = deltaTime;
 			numOfIterations = stimulationLength / deltaTime;
 			this.inputLayer = inputLayer;
@@ -49,7 +84,7 @@ public class NetworkStimulator {
 			
 			inputLayer.isExternallyStimulated = true;
 			
-			// Socket used to send the input to the node 
+			// Socket used to send the input to the node. 
 			DatagramSocket outputSocket = null;
 	        try {
 	    	    outputSocket = new DatagramSocket();
@@ -84,6 +119,8 @@ public class NetworkStimulator {
 				}
 			}
 			
+			inputLayer.isExternallyStimulated = false;		
+			outputSocket.close();
 		}
 	}
 

@@ -47,14 +47,16 @@ public class SpikeInputCreator {
 	}
 	
 	/**
-	 * Compute the rate of firing of one or more spike trains
+	 * Compute the rate of firing of one or more spike trains. 
+	 * The rate is adimensional and should be divided by the time bin to 
+	 * get the dimensional one. 
 	 */
 	
-	public static float[] computeFiringRate(ArrayList<char[]> spikeTrains, short numOfSynapses) {
+	public static float[] computeFiringRate(ArrayList<byte[]> spikeTrains, short numOfSynapses) {
 		float[] firingRates = new float[numOfSynapses];
 		
 		// Each element of the ArrayList is the spike input at a different time		
-		for (char[] spikeInput : spikeTrains) { // Iterating over time
+		for (byte[] spikeInput : spikeTrains) { // Iterating over time
 			for (int index = 0; index < numOfSynapses; index++) { // Iterating over the synapses of the input
 				int byteIndex = index / 8;
 				
