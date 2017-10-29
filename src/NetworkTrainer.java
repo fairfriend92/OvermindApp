@@ -1,10 +1,14 @@
 
 public class NetworkTrainer {
 	
-	public static float[] STDPbasedLearning(float[] presynapticRates, float[] postsynapticRates, float[] weights) {
-		// If the lengths of the vectors are not the same, exit with error.
+	/**
+	 * Appication of the STDP rate based learning rule. 
+	 */
+	
+	public float[] stdpBasedLearning(float[] presynapticRates, float[] postsynapticRates, float[] weights) {
 		if (!(presynapticRates.length == postsynapticRates.length & 
 				presynapticRates.length == weights.length)) {
+			System.out.println("ERROR: length of presynapticRates, postsynapticRates and weights vectors are not the same.");
 			return null;
 		}
 		

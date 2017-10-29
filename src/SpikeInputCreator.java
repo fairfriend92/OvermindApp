@@ -52,7 +52,7 @@ public class SpikeInputCreator {
 	 * get the dimensional one. 
 	 */
 	
-	public static float[] computeFiringRate(ArrayList<byte[]> spikeTrains, short numOfSynapses) {
+	public float[] computeFiringRate(ArrayList<byte[]> spikeTrains, short numOfSynapses) {
 		float[] firingRates = new float[numOfSynapses];
 		
 		// Each element of the ArrayList is the spike input at a different time		

@@ -22,9 +22,11 @@ public class NetworkStimulator {
 	 * for the threads to finish their jobs before returning.  
 	 */
 	
-	public static boolean stimulateWithLuminanceMap(int stimulationLength, int deltaTime, Node[] inputLayers, GrayscaleCandidate[] inputs) {		
+	public boolean stimulateWithLuminanceMap(int stimulationLength, int deltaTime, Node[] inputLayers, GrayscaleCandidate[] inputs) {	
+		long stimulationStartTime = System.nanoTime();
+		
 		if (inputLayers.length != inputs.length) {
-			System.out.println("ERROR: number of inputs is different from number of input layers");
+			System.out.println("ERROR: number of inputs is different from number of input layers.");
 			return false;
 		}
 		
@@ -37,7 +39,7 @@ public class NetworkStimulator {
 		for (int index = 0; index < inputs.length; index++) {
 			// The input should be sent to a node only if this one is not being stimulated already.
 			if (inputLayers[index].isBeingStimulated()) {
-				System.out.println("Input layer with IP: " + inputLayers[index].terminal.ip + " is already being stimulated");
+				System.out.println("Input layer with IP: " + inputLayers[index].terminal.ip + " is already being stimulated.");
 			} else {
 				// For each inputLayer start a thread to stimulate it.
 				Future<?> inputSenderFuture = 
@@ -56,6 +58,8 @@ public class NetworkStimulator {
 			return false;
 		}
 		
+		System.out.println("Stimulation length: " + (System.nanoTime() - stimulationStartTime) / Constants.NANO_TO_MILLS_FACTOR + " ms.");
+		
 		return true;
 	}
 	
@@ -65,7 +69,7 @@ public class NetworkStimulator {
 	 * Then a new sample of the spike train is sent every deltaTime ms. 
 	 */
 	
-	private static class InputSender implements Runnable {
+	private class InputSender implements Runnable {
 		private int numOfIterations; // How many times should the input be sent to the network?
 		private Node inputLayer;
 		private GrayscaleCandidate input;
