@@ -18,6 +18,8 @@ public class CandidatePicsReceiver extends Thread {
 	@Override
 	public void run() {
 		super.run();
+		
+		// TODO: Server IP could be retrieved from the OvermindServer interface.
 					
 		/* Get this server IP */
         try (java.util.Scanner s = new java.util.Scanner(new java.net.URL("https://api.ipify.org").openStream(), "UTF-8").useDelimiter("\\A")) {
@@ -26,7 +28,6 @@ public class CandidatePicsReceiver extends Thread {
         	e.printStackTrace();
         }        
         assert serverIP != null;        
-        System.out.println("This server has IP " + serverIP);	
        
         /* Build the TCP socket */
         ServerSocket serverSocket = null;		
