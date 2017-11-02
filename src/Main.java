@@ -1,5 +1,6 @@
 import java.awt.BorderLayout;
 import java.awt.Color;
+import java.awt.Component;
 import java.awt.GridLayout;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
@@ -57,10 +58,10 @@ public class Main {
 		
 		JFrame mainFrame = new JFrame();
 		
-		JButton addNodeToInput = new JButton("Add node to input");
-		JButton addNodeToOutput = new JButton("Add node to output");
-		JButton removeNodeFromInput = new JButton("Remove node from input");
-		JButton removeNodeFromOutput = new JButton("Remove node from output");
+		JButton addNodeToInput = new JButton("Add");
+		JButton addNodeToOutput = new JButton("Add");
+		JButton removeNodeFromInput = new JButton("Remove");
+		JButton removeNodeFromOutput = new JButton("Remove");
 		
 		JList<String> inputLayersList = new JList<>();
 		JList<String> outputLayersList = new JList<>();
@@ -75,10 +76,6 @@ public class Main {
 		/* Commands panel */
 		
 		commandsPanel.setLayout(new GridLayout(2, 2));
-		commandsPanel.add(addNodeToInput);
-		commandsPanel.add(removeNodeFromInput);
-		commandsPanel.add(addNodeToOutput);
-		commandsPanel.add(removeNodeFromOutput);
 		
 		/* Log panel */
 		
@@ -86,7 +83,7 @@ public class Main {
 		
 		/* Input layers panel */
 		
-		inputLayersPanel.setLayout(new BorderLayout());
+		inputLayersPanel.setLayout(new BoxLayout(inputLayersPanel, BoxLayout.Y_AXIS));
 		inputLayersPanel.setBorder(BorderFactory.createCompoundBorder(
 				BorderFactory.createTitledBorder("Input layers"),
 				BorderFactory.createEmptyBorder(5,5,5,5)));
@@ -94,16 +91,19 @@ public class Main {
 		inputLayersList.setVisibleRowCount(2);
 		
 		inputLayersScrollPane.setViewportView(inputLayersList);
+		inputLayersScrollPane.setAlignmentX(Component.LEFT_ALIGNMENT);
 		inputLayersListModel.addElement("No input layer");
 		inputLayersList.setModel(inputLayersListModel);
 		inputLayersList.setSelectionMode(ListSelectionModel.SINGLE_INTERVAL_SELECTION);
 		inputLayersList.setLayoutOrientation(JList.VERTICAL);
 		
-		inputLayersPanel.add(inputLayersScrollPane, BorderLayout.CENTER);
+		inputLayersPanel.add(addNodeToInput);
+		inputLayersPanel.add(removeNodeFromInput);
+		inputLayersPanel.add(inputLayersScrollPane);
 		
 		/* Output layers panel */
 		
-		outputLayersPanel.setLayout(new BorderLayout());
+		outputLayersPanel.setLayout(new BoxLayout(outputLayersPanel, BoxLayout.Y_AXIS));
 		outputLayersPanel.setBorder(BorderFactory.createCompoundBorder(
 				BorderFactory.createTitledBorder("Output layers"),
 				BorderFactory.createEmptyBorder(5,5,5,5)));
@@ -111,11 +111,14 @@ public class Main {
 		outputLayersList.setVisibleRowCount(2);
 		
 		outputLayersScrollPane.setViewportView(outputLayersList);
+		outputLayersScrollPane.setAlignmentX(Component.LEFT_ALIGNMENT);
 		outputLayersListModel.addElement("No output layer");
 		outputLayersList.setModel(outputLayersListModel);
 		outputLayersList.setSelectionMode(ListSelectionModel.SINGLE_INTERVAL_SELECTION);
 		outputLayersList.setLayoutOrientation(JList.VERTICAL);
 		
+		outputLayersPanel.add(addNodeToOutput);
+		outputLayersPanel.add(removeNodeFromOutput);
 		outputLayersPanel.add(outputLayersScrollPane, BorderLayout.CENTER);
 		
 		/* Upper panels container */
@@ -136,7 +139,6 @@ public class Main {
 		 */
 		
 		addNodeToInput.addActionListener(new ActionListener() {
-
 			@Override
 			public void actionPerformed(ActionEvent arg0) {
 				Node selectedNode = VirtualLayerVisualizer.selectedNode;
@@ -147,13 +149,17 @@ public class Main {
 					updateLogPanel("Node is already present.", Color.RED); 
 				} else {
 					updateLogPanel("Node added to inputs.", Color.BLACK); 
-					if (inputLayersListModel.contains("No input layer"))
+					
+					if (inputLayersListModel.contains("No input layer")) // The default message should be cleared if a node is added to the list.
 						inputLayersListModel.clear();
+					
 					inputLayersListModel.addElement(selectedNode.terminal.ip);
 					inputLayers.add(selectedNode);
+					
+					mainPanel.revalidate();
+					mainPanel.repaint();
 				}
-			}
-			
+			}			
 		});
 		
 		removeNodeFromInput.addActionListener(new ActionListener() {			
@@ -169,12 +175,40 @@ public class Main {
 				} else {
 					inputLayers.remove(selectionIndex);
 					inputLayersListModel.remove(selectionIndex);
+					
 					updateLogPanel("Node removed from inputs.", Color.BLACK);
+					
+					if (inputLayersListModel.isEmpty())
+						inputLayersListModel.addElement("No input layer");
+					
 					mainPanel.revalidate();
 					mainPanel.repaint();
 				}
-			}
-			
+			}			
+		});		
+		
+		addNodeToOutput.addActionListener(new ActionListener() {
+			@Override
+			public void actionPerformed(ActionEvent arg0) {
+				Node selectedNode = VirtualLayerVisualizer.selectedNode;
+				
+				if (selectedNode == null) {
+					updateLogPanel("No node selected.", Color.RED); 
+				} else if (outputLayers.contains(selectedNode)){
+					updateLogPanel("Node is already present.", Color.RED); 
+				} else {
+					updateLogPanel("Node added to outputs.", Color.BLACK); 
+					
+					if (outputLayersListModel.contains("No output layer"))
+						outputLayersListModel.clear();
+					
+					outputLayersListModel.addElement(selectedNode.terminal.ip);
+					outputLayers.add(selectedNode);
+					
+					mainPanel.revalidate();
+					mainPanel.repaint();
+				}
+			}			
 		});
 		
 		removeNodeFromOutput.addActionListener(new ActionListener() {			
@@ -184,39 +218,22 @@ public class Main {
 				
 				if(selectionIndex == NO_ITEM_SELECTED) {
 					updateLogPanel("Select an output layer first.", Color.RED); 
-				} else if (outputLayersListModel.contains("No input layer")) {
+				} else if (outputLayersListModel.contains("No output layer")) {
 					updateLogPanel("No output layers to remove.", Color.RED); 
 					
 				} else {
 					outputLayers.remove(selectionIndex);
 					outputLayersListModel.remove(selectionIndex);
+					
 					updateLogPanel("Node removed from outputs.", Color.BLACK);
+					
+					if (outputLayersListModel.isEmpty())
+						outputLayersListModel.addElement("No output layer");
+					
 					mainPanel.revalidate();
 					mainPanel.repaint();
 				}
-			}
-			
-		});
-		
-		addNodeToOutput.addActionListener(new ActionListener() {
-
-			@Override
-			public void actionPerformed(ActionEvent arg0) {
-				Node selectedNode = VirtualLayerVisualizer.selectedNode;
-				
-				if (selectedNode == null) {
-					updateLogPanel("No node selected.", Color.RED); 
-				} else if (inputLayers.contains(selectedNode)){
-					updateLogPanel("Node is already present.", Color.RED); 
-				} else {
-					updateLogPanel("Node added to outputs.", Color.BLACK); 
-					if (outputLayersListModel.contains("No input layer"))
-						outputLayersListModel.clear();
-					outputLayersListModel.addElement(selectedNode.terminal.ip);
-					outputLayers.add(selectedNode);
-				}
-			}
-			
+			}			
 		});
 		
 		/*
