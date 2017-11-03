@@ -11,7 +11,7 @@ import java.util.concurrent.Executors;
 
 public class CandidatePicsReceiver extends Thread {
 	
-	private static String serverIP = null;
+	static String serverIP = null;
 	private static boolean shutdown = false;
 	private ExecutorService cachedThreadPoolExecutor = Executors.newCachedThreadPool(); 
 	

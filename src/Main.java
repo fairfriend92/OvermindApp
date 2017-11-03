@@ -21,22 +21,35 @@ public class Main {
 	
 	/* Collections of nodes */
 	
-	static ArrayList<Node> inputLayers = new ArrayList<>();
-	static ArrayList<Node> outputLayers = new ArrayList<>();
+	static ArrayList<Node> excNodes = new ArrayList<>(); // Nodes with excitatory neurons only 
+	static ArrayList<Node> inhNodes = new ArrayList<>(); // Nodes with inhibitory neurons only 
 	
 	/* Panels */
 	
 	private static JPanel logPanel = new JPanel();
 	static JPanel mainPanel = new JPanel();
 	
+	/* Buttons */
+	
+	private static JButton addNodeToExc = new JButton("Add");
+	private static JButton addNodeToInh = new JButton("Add");
+	private static JButton removeNodeFromExc = new JButton("Remove");
+	private static JButton removeNodeFromInh = new JButton("Remove");
+	private static JButton trainNetwork = new JButton("Train");
+	private static JButton analyzeSamples = new JButton("Analyze");
+	
 	/* List models */
 	
-	static DefaultListModel<String> inputLayersListModel = new DefaultListModel<>();
-	static DefaultListModel<String> outputLayersListModel = new DefaultListModel<>();
+	static DefaultListModel<String> excNodesListModel = new DefaultListModel<>();
+	static DefaultListModel<String> inhNodesListModel = new DefaultListModel<>();
 	
 	/* Constants */
 	
 	private static final int NO_ITEM_SELECTED = -1; // Constant used to check against values returned by the JList methods.
+	
+	/* Custom classes */
+	
+	private NetworkTrainer networkTrainer = new NetworkTrainer();
 
 	public static void main(String[] args) {
 		MainFrame.main(args); // Start the Overmind server. 
@@ -52,22 +65,17 @@ public class Main {
 	
 	private static void displayMainFrame() {
 		JPanel commandsPanel = new JPanel();
-		JPanel inputLayersPanel = new JPanel();
-		JPanel outputLayersPanel = new JPanel();
+		JPanel excNodesPanel = new JPanel();
+		JPanel inhNodesPanel = new JPanel();
 		JPanel upperPanelsContainer = new JPanel();
 		
-		JFrame mainFrame = new JFrame();
+		JFrame mainFrame = new JFrame();	
+				
+		JList<String> excNodesList = new JList<>();
+		JList<String> inhNodesList = new JList<>();
 		
-		JButton addNodeToInput = new JButton("Add");
-		JButton addNodeToOutput = new JButton("Add");
-		JButton removeNodeFromInput = new JButton("Remove");
-		JButton removeNodeFromOutput = new JButton("Remove");
-		
-		JList<String> inputLayersList = new JList<>();
-		JList<String> outputLayersList = new JList<>();
-		
-		JScrollPane inputLayersScrollPane = new JScrollPane();
-		JScrollPane outputLayersScrollPane = new JScrollPane();		
+		JScrollPane excNodesScrollPane = new JScrollPane();
+		JScrollPane inhNodesScrollPane = new JScrollPane();		
 		
 		/*
 		 * Build the individual panels.
@@ -75,58 +83,63 @@ public class Main {
 		
 		/* Commands panel */
 		
-		commandsPanel.setLayout(new GridLayout(2, 2));
+		commandsPanel.setLayout(new GridLayout(2, 1));
+		commandsPanel.setBorder(BorderFactory.createCompoundBorder(
+				BorderFactory.createTitledBorder("Commands"),
+				BorderFactory.createEmptyBorder(5,5,5,5)));
+		commandsPanel.add(trainNetwork);
+		commandsPanel.add(analyzeSamples);
 		
 		/* Log panel */
 		
 		logPanel.add(new JLabel("Log info are shown here."));
 		
-		/* Input layers panel */
+		/* Excitatory nodes panel */
 		
-		inputLayersPanel.setLayout(new BoxLayout(inputLayersPanel, BoxLayout.Y_AXIS));
-		inputLayersPanel.setBorder(BorderFactory.createCompoundBorder(
-				BorderFactory.createTitledBorder("Input layers"),
+		excNodesPanel.setLayout(new BoxLayout(excNodesPanel, BoxLayout.Y_AXIS));
+		excNodesPanel.setBorder(BorderFactory.createCompoundBorder(
+				BorderFactory.createTitledBorder("Exc. nodes"),
 				BorderFactory.createEmptyBorder(5,5,5,5)));
 		
-		inputLayersList.setVisibleRowCount(2);
+		excNodesList.setVisibleRowCount(2);
 		
-		inputLayersScrollPane.setViewportView(inputLayersList);
-		inputLayersScrollPane.setAlignmentX(Component.LEFT_ALIGNMENT);
-		inputLayersListModel.addElement("No input layer");
-		inputLayersList.setModel(inputLayersListModel);
-		inputLayersList.setSelectionMode(ListSelectionModel.SINGLE_INTERVAL_SELECTION);
-		inputLayersList.setLayoutOrientation(JList.VERTICAL);
+		excNodesScrollPane.setViewportView(excNodesList);
+		excNodesScrollPane.setAlignmentX(Component.LEFT_ALIGNMENT);
+		excNodesListModel.addElement("No excitatory node");
+		excNodesList.setModel(excNodesListModel);
+		excNodesList.setSelectionMode(ListSelectionModel.SINGLE_INTERVAL_SELECTION);
+		excNodesList.setLayoutOrientation(JList.VERTICAL);
 		
-		inputLayersPanel.add(addNodeToInput);
-		inputLayersPanel.add(removeNodeFromInput);
-		inputLayersPanel.add(inputLayersScrollPane);
+		excNodesPanel.add(addNodeToExc);
+		excNodesPanel.add(removeNodeFromExc);
+		excNodesPanel.add(excNodesScrollPane);
 		
-		/* Output layers panel */
+		/* Inhibitory nodes panel */
 		
-		outputLayersPanel.setLayout(new BoxLayout(outputLayersPanel, BoxLayout.Y_AXIS));
-		outputLayersPanel.setBorder(BorderFactory.createCompoundBorder(
-				BorderFactory.createTitledBorder("Output layers"),
+		inhNodesPanel.setLayout(new BoxLayout(inhNodesPanel, BoxLayout.Y_AXIS));
+		inhNodesPanel.setBorder(BorderFactory.createCompoundBorder(
+				BorderFactory.createTitledBorder("Inh. nodes"),
 				BorderFactory.createEmptyBorder(5,5,5,5)));
 		
-		outputLayersList.setVisibleRowCount(2);
+		inhNodesList.setVisibleRowCount(2);
 		
-		outputLayersScrollPane.setViewportView(outputLayersList);
-		outputLayersScrollPane.setAlignmentX(Component.LEFT_ALIGNMENT);
-		outputLayersListModel.addElement("No output layer");
-		outputLayersList.setModel(outputLayersListModel);
-		outputLayersList.setSelectionMode(ListSelectionModel.SINGLE_INTERVAL_SELECTION);
-		outputLayersList.setLayoutOrientation(JList.VERTICAL);
+		inhNodesScrollPane.setViewportView(inhNodesList);
+		inhNodesScrollPane.setAlignmentX(Component.LEFT_ALIGNMENT);
+		inhNodesListModel.addElement("No inhibitory node");
+		inhNodesList.setModel(inhNodesListModel);
+		inhNodesList.setSelectionMode(ListSelectionModel.SINGLE_INTERVAL_SELECTION);
+		inhNodesList.setLayoutOrientation(JList.VERTICAL);
 		
-		outputLayersPanel.add(addNodeToOutput);
-		outputLayersPanel.add(removeNodeFromOutput);
-		outputLayersPanel.add(outputLayersScrollPane, BorderLayout.CENTER);
+		inhNodesPanel.add(addNodeToInh);
+		inhNodesPanel.add(removeNodeFromInh);
+		inhNodesPanel.add(inhNodesScrollPane, BorderLayout.CENTER);
 		
 		/* Upper panels container */
 		
 		upperPanelsContainer.setLayout(new BoxLayout(upperPanelsContainer, BoxLayout.X_AXIS));
 		upperPanelsContainer.add(commandsPanel);
-		upperPanelsContainer.add(inputLayersPanel);
-		upperPanelsContainer.add(outputLayersPanel);
+		upperPanelsContainer.add(excNodesPanel);
+		upperPanelsContainer.add(inhNodesPanel);
 		
 		/* Main panel */
 				
@@ -138,23 +151,38 @@ public class Main {
 		 * Define buttons actions. 
 		 */
 		
-		addNodeToInput.addActionListener(new ActionListener() {
+		trainNetwork.addActionListener(new ActionListener() { 
+			@Override
+			public void actionPerformed(ActionEvent arg0) {
+				if (excNodesListModel.isEmpty() | inhNodesListModel.isEmpty()) {
+					updateLogPanel("Select an input and output layer first.", Color.RED);
+				} else {
+					disablePanel(); // During the learning phase the user shouldn't change the network topology. 
+					
+				}
+			}
+		});
+		
+		addNodeToExc.addActionListener(new ActionListener() {
 			@Override
 			public void actionPerformed(ActionEvent arg0) {
 				Node selectedNode = VirtualLayerVisualizer.selectedNode;
 				
 				if (selectedNode == null) {
 					updateLogPanel("No node selected.", Color.RED); 
-				} else if (inputLayers.contains(selectedNode)){
+				} else if (excNodes.contains(selectedNode)){
 					updateLogPanel("Node is already present.", Color.RED); 
+				} else if (inhNodes.contains(selectedNode)) {
+					updateLogPanel("Selected node is already inhibitory.", Color.RED); 
 				} else {
-					updateLogPanel("Node added to inputs.", Color.BLACK); 
+					updateLogPanel("Node added to exc. nodes.", Color.BLACK); 
 					
-					if (inputLayersListModel.contains("No input layer")) // The default message should be cleared if a node is added to the list.
-						inputLayersListModel.clear();
+					if (excNodesListModel.contains("No excitatory node")) // The default message should be cleared if a node is added to the list.
+						excNodesListModel.clear();
 					
-					inputLayersListModel.addElement(selectedNode.terminal.ip);
-					inputLayers.add(selectedNode);
+					selectedNode.isExternallyStimulated = true;
+					excNodesListModel.addElement(selectedNode.terminal.ip);
+					excNodes.add(selectedNode);
 					
 					mainPanel.revalidate();
 					mainPanel.repaint();
@@ -162,24 +190,25 @@ public class Main {
 			}			
 		});
 		
-		removeNodeFromInput.addActionListener(new ActionListener() {			
+		removeNodeFromExc.addActionListener(new ActionListener() {			
 			@Override
 			public void actionPerformed(ActionEvent arg0) {
-				int selectionIndex = inputLayersList.getSelectedIndex();
+				int selectionIndex = excNodesList.getSelectedIndex();
 				
 				if(selectionIndex == NO_ITEM_SELECTED) {
-					updateLogPanel("Select an input layer first.", Color.RED); 
-				} else if (inputLayersListModel.contains("No input layer")) {
-					updateLogPanel("No input layers to remove.", Color.RED); 
+					updateLogPanel("Select an exc. node first.", Color.RED); 
+				} else if (excNodesListModel.contains("No excitatory node")) {
+					updateLogPanel("No exc. nodes to remove.", Color.RED); 
 					
 				} else {
-					inputLayers.remove(selectionIndex);
-					inputLayersListModel.remove(selectionIndex);
+					excNodes.get(selectionIndex).isExternallyStimulated = false;
+					excNodes.remove(selectionIndex);
+					excNodesListModel.remove(selectionIndex);
 					
-					updateLogPanel("Node removed from inputs.", Color.BLACK);
+					updateLogPanel("Node removed from exc. nodes.", Color.BLACK);
 					
-					if (inputLayersListModel.isEmpty())
-						inputLayersListModel.addElement("No input layer");
+					if (excNodesListModel.isEmpty())
+						excNodesListModel.addElement("No excitatory node");
 					
 					mainPanel.revalidate();
 					mainPanel.repaint();
@@ -187,23 +216,25 @@ public class Main {
 			}			
 		});		
 		
-		addNodeToOutput.addActionListener(new ActionListener() {
+		addNodeToInh.addActionListener(new ActionListener() {
 			@Override
 			public void actionPerformed(ActionEvent arg0) {
 				Node selectedNode = VirtualLayerVisualizer.selectedNode;
 				
 				if (selectedNode == null) {
 					updateLogPanel("No node selected.", Color.RED); 
-				} else if (outputLayers.contains(selectedNode)){
+				} else if (inhNodes.contains(selectedNode)){
 					updateLogPanel("Node is already present.", Color.RED); 
+				} else if (excNodes.contains(selectedNode)) {
+					updateLogPanel("Selected node is already excitatory.", Color.RED); 
 				} else {
-					updateLogPanel("Node added to outputs.", Color.BLACK); 
+					updateLogPanel("Node added to inh. nodes.", Color.BLACK); 
 					
-					if (outputLayersListModel.contains("No output layer"))
-						outputLayersListModel.clear();
+					if (inhNodesListModel.contains("No inhibitory node"))
+						inhNodesListModel.clear();
 					
-					outputLayersListModel.addElement(selectedNode.terminal.ip);
-					outputLayers.add(selectedNode);
+					inhNodesListModel.addElement(selectedNode.terminal.ip);
+					inhNodes.add(selectedNode);
 					
 					mainPanel.revalidate();
 					mainPanel.repaint();
@@ -211,24 +242,24 @@ public class Main {
 			}			
 		});
 		
-		removeNodeFromOutput.addActionListener(new ActionListener() {			
+		removeNodeFromInh.addActionListener(new ActionListener() {			
 			@Override
 			public void actionPerformed(ActionEvent arg0) {
-				int selectionIndex = outputLayersList.getSelectedIndex();
+				int selectionIndex = inhNodesList.getSelectedIndex();
 				
 				if(selectionIndex == NO_ITEM_SELECTED) {
-					updateLogPanel("Select an output layer first.", Color.RED); 
-				} else if (outputLayersListModel.contains("No output layer")) {
-					updateLogPanel("No output layers to remove.", Color.RED); 
+					updateLogPanel("Select an inh. node first.", Color.RED); 
+				} else if (inhNodesListModel.contains("No inhibitory node")) {
+					updateLogPanel("No inh. nodes to remove.", Color.RED); 
 					
 				} else {
-					outputLayers.remove(selectionIndex);
-					outputLayersListModel.remove(selectionIndex);
+					inhNodes.remove(selectionIndex);
+					inhNodesListModel.remove(selectionIndex);
 					
-					updateLogPanel("Node removed from outputs.", Color.BLACK);
+					updateLogPanel("Node removed from inh. nodes.", Color.BLACK);
 					
-					if (outputLayersListModel.isEmpty())
-						outputLayersListModel.addElement("No output layer");
+					if (inhNodesListModel.isEmpty())
+						inhNodesListModel.addElement("No inhibitory node");
 					
 					mainPanel.revalidate();
 					mainPanel.repaint();
@@ -247,6 +278,23 @@ public class Main {
 		mainFrame.setAlwaysOnTop(true);
 		mainFrame.setVisible(true);
 	}
+	
+	/**
+	 * Disable all the commands of the panel.
+	 */
+	
+	private static void disablePanel() {
+		addNodeToExc.setEnabled(false);
+		addNodeToInh.setEnabled(false);
+		removeNodeFromExc.setEnabled(false);
+		removeNodeFromInh.setEnabled(false);
+		trainNetwork.setEnabled(false);
+		analyzeSamples.setEnabled(false);
+	}
+	
+	/**
+	 * Show text on the log panel.
+	 */
 	
 	private static void updateLogPanel(String logText, Color color) {
 		logPanel.removeAll();

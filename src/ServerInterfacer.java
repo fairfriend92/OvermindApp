@@ -27,26 +27,25 @@ public class ServerInterfacer extends Thread {
 			if (removedNodeObject.shadowNode == null) {	
 				
 				/*
-				 * Update the lists of input and output layers if the removed node 
-				 * belonged to either of them. 
+				 * Update the lists of excitatory  and inhibitory nodes. 
 				 */
 				
-				if (Main.inputLayers.contains(removedNodeObject.removedNode)) {
-					Main.inputLayers.remove(removedNodeObject.removedNode);
-					Main.inputLayersListModel.removeElement(removedNodeObject.removedNode.terminal.ip);					
+				if (Main.excNodes.contains(removedNodeObject.removedNode)) {
+					Main.excNodes.remove(removedNodeObject.removedNode);
+					Main.excNodesListModel.removeElement(removedNodeObject.removedNode.terminal.ip);					
 				}			
 				
-				if (Main.outputLayers.contains(removedNodeObject.removedNode)) {
-					Main.outputLayers.remove(removedNodeObject.removedNode);
-					Main.outputLayersListModel.removeElement(removedNodeObject.removedNode.terminal.ip);					
+				if (Main.inhNodes.contains(removedNodeObject.removedNode)) {
+					Main.inhNodes.remove(removedNodeObject.removedNode);
+					Main.inhNodesListModel.removeElement(removedNodeObject.removedNode.terminal.ip);					
 				}		
 			}
 			
-			// If the input and output layers are now empty, put back the default text in them. 			
-			if (Main.inputLayersListModel.isEmpty())
-				Main.inputLayersListModel.addElement("No input layer");			
-			if (Main.outputLayersListModel.isEmpty())
-				Main.outputLayersListModel.addElement("No output layer");	
+			// If the exc. nodes and inh. nodes list are empty, put back the default text in them. 			
+			if (Main.excNodesListModel.isEmpty())
+				Main.excNodesListModel.addElement("No excitatory node");			
+			if (Main.inhNodesListModel.isEmpty())
+				Main.inhNodesListModel.addElement("No inhibitory node");	
 			
 			Main.mainPanel.revalidate();
 			Main.mainPanel.repaint();
