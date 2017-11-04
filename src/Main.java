@@ -49,7 +49,7 @@ public class Main {
 	
 	/* Custom classes */
 	
-	private NetworkTrainer networkTrainer = new NetworkTrainer();
+	private static NetworkTrainer networkTrainer = new NetworkTrainer();
 
 	public static void main(String[] args) {
 		MainFrame.main(args); // Start the Overmind server. 
@@ -158,7 +158,12 @@ public class Main {
 					updateLogPanel("Select an input and output layer first.", Color.RED);
 				} else {
 					disablePanel(); // During the learning phase the user shouldn't change the network topology. 
-					
+					boolean networkTopologyIsOK = networkTrainer.checkNetworkTopology();					
+					if (!networkTopologyIsOK) {
+						resetNetwork(); // Restore the network to its original state. 
+					} else {
+						
+					}
 				}
 			}
 		});
@@ -280,6 +285,34 @@ public class Main {
 	}
 	
 	/**
+	 * Reset the network to the default state before any node was selected. 
+	 * This method is used whenever an error arises during either the training or the
+	 * testing phase and the application must be interrupted. 
+	 */
+	
+	private static void resetNetwork() {
+		for (Node excNode : excNodes) {
+			excNode.isExternallyStimulated = false;
+			
+			if (!VirtualLayerManager.availableNodes.contains(excNode))
+				VirtualLayerManager.availableNodes.add(excNode);			
+		}
+		
+		for (Node inhNode : inhNodes) {
+			if (!VirtualLayerManager.availableNodes.contains(inhNode))
+				VirtualLayerManager.availableNodes.add(inhNode);
+		}
+		
+		excNodesListModel.clear();
+		excNodesListModel.addElement("No excitatory node");
+		
+		inhNodesListModel.clear();
+		inhNodesListModel.addElement("No inhibitory node");
+		
+		enablePanel();
+	}
+	
+	/**
 	 * Disable all the commands of the panel.
 	 */
 	
@@ -293,10 +326,23 @@ public class Main {
 	}
 	
 	/**
+	 * Re-enable all the command of the panel.
+	 */
+	
+	private static void enablePanel() {
+		addNodeToExc.setEnabled(true);
+		addNodeToInh.setEnabled(true);
+		removeNodeFromExc.setEnabled(true);
+		removeNodeFromInh.setEnabled(true);
+		trainNetwork.setEnabled(true);
+		analyzeSamples.setEnabled(true);
+	}
+	
+	/**
 	 * Show text on the log panel.
 	 */
 	
-	private static void updateLogPanel(String logText, Color color) {
+	static void updateLogPanel(String logText, Color color) {
 		logPanel.removeAll();
 		JLabel logMessage = new JLabel(logText);
 		logMessage.setForeground(color);
