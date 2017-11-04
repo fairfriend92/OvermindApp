@@ -162,7 +162,7 @@ public class Main {
 					if (!networkTopologyIsOK) {
 						resetNetwork(); // Restore the network to its original state. 
 					} else {
-						
+						networkTrainer.setSynapticWeights();
 					}
 				}
 			}
@@ -303,9 +303,11 @@ public class Main {
 				VirtualLayerManager.availableNodes.add(inhNode);
 		}
 		
+		excNodes.clear();
 		excNodesListModel.clear();
 		excNodesListModel.addElement("No excitatory node");
 		
+		inhNodes.clear();
 		inhNodesListModel.clear();
 		inhNodesListModel.addElement("No inhibitory node");
 		
