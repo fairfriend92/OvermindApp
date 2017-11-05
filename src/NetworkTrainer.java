@@ -1,4 +1,9 @@
 import java.awt.Color;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.io.ObjectInputStream;
+import java.util.Arrays;
 import java.util.Random;
 
 public class NetworkTrainer {	
@@ -158,7 +163,6 @@ public class NetworkTrainer {
 			
 			// Send the new weights to the terminal.
 			VirtualLayerManager.unsyncNodes.add(inhNode);
-			VirtualLayerManager.syncNodes();
 		}	
 		
 		for (Node excNode : Main.excNodes) {
@@ -224,14 +228,105 @@ public class NetworkTrainer {
 			
 			VirtualLayerManager.weightsTable.put(excNode.virtualID, weights);
 			
-			VirtualLayerManager.unsyncNodes.add(excNode);
-			VirtualLayerManager.syncNodes();			
-			
-			Main.updateLogPanel("All weights updated", Color.BLACK);
+			VirtualLayerManager.unsyncNodes.add(excNode);			
 		} 
 		
 		/* [End of for over excitatory nodes] */
 		
+		VirtualLayerManager.syncNodes();			
+		
+		Main.updateLogPanel("All weights updated", Color.BLACK);		
+	}
+	
+	public boolean startTraining() {	
+		
+		NetworkStimulator networkStimulator = new NetworkStimulator();
+		
+		/*
+		 * Add the input sender to the presynaptic connections of the terminals
+		 * underlying the excitatory nodes. 
+		 */
+		
+		for (Node excNode : Main.excNodes) {
+			// Create a Terminal object holding all the info regarding this server,
+			// which is the input sender. 
+			com.example.overmind.Terminal server = new com.example.overmind.Terminal();
+			server.numOfNeurons = (short) Constants.MAX_PIC_PIXELS;
+			server.numOfSynapses = excNode.terminal.numOfNeurons;
+			server.numOfDendrites = server.numOfSynapses;
+			server.ip = CandidatePicsReceiver.serverIP;
+			server.natPort = Constants.UDP_PORT;
+			
+			excNode.terminal.presynapticTerminals.add(server);
+			excNode.terminal.numOfDendrites -= Constants.MAX_PIC_PIXELS;
+			VirtualLayerManager.unsyncNodes.add(excNode);
+		}
+		
+		VirtualLayerManager.syncNodes();		
+		
+		/*
+		 * Get all the grayscale candidates files used for training. 
+		 */
+		
+		String path = new File("").getAbsolutePath();
+		path = path.concat("/resources/pics/training_set");
+		File trainingSetDir = new File(path);
+		File[] trainingSetFiles = trainingSetDir.listFiles();
+		
+		if (trainingSetFiles.length == 0 | trainingSetFiles == null) {
+			Main.updateLogPanel("No training set found", Color.RED);
+			return false;
+		}
+		
+		ObjectInputStream objectInputStream = null; // To read the Candidate object from the file stream.
+        FileInputStream fileInputStream = null; // To read from the file.
+        GrayscaleCandidate[] grayscaleCandidates = new GrayscaleCandidate[trainingSetFiles.length]; 
+        
+        System.out.println("test0");
+        
+        // Convert the files into objects and save them. 
+        for (int i = 0; i < trainingSetFiles.length; i++) {
+        	try {
+        		fileInputStream = new FileInputStream(trainingSetFiles[i]);
+        		objectInputStream = new ObjectInputStream(fileInputStream);
+        		grayscaleCandidates[i] = (GrayscaleCandidate) objectInputStream.readObject();
+        	} catch (ClassNotFoundException | IOException e) {
+        		System.out.println(e);
+        	} 
+        }
+        
+        System.out.println("test");
+        
+        /*
+         * Train the network using all the retrieved grayscale candidates.
+         */
+        
+        // Each input layer has its own candidate object which serves as input.
+        GrayscaleCandidate[] inputCandidates = new GrayscaleCandidate[Main.excNodes.size()];
+        
+        // At each new interation of the training session send a different grayscale map to the input layers.
+        for (GrayscaleCandidate candidate : grayscaleCandidates) {
+        	Arrays.fill(inputCandidates, candidate); // In this implementation the inputs of the nodes are all the same. 
+        	Node[] inputLayers = new Node[Main.excNodes.size()];
+        	Main.excNodes.toArray(inputLayers);
+        	
+        	// Stimulate the input layers with the candidate grayscale map.
+        	boolean noErrorRaised = 
+        			networkStimulator.stimulateWithLuminanceMap(Constants.STIMULATION_LENGTH, Constants.DELTA_TIME, inputLayers, inputCandidates);  
+        	if (!noErrorRaised) {
+        		Main.updateLogPanel("Error occurred during the stimulation", Color.RED);
+        		return false;
+        	}
+        	
+        	// Wait before sending the new stimulus according to the PAUSE_LENGTH constant. 
+        	long finishingTime = System.nanoTime();
+        	while ((System.nanoTime() - finishingTime) / Constants.NANO_TO_MILLS_FACTOR < 
+        			Constants.PAUSE_LENGTH) {
+        		// TODO: Here we read the output of the nodes and build the rates to do the learning.  
+        	}
+        }
+		
+		return true;		
 	}
 	
 }

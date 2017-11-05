@@ -55,7 +55,7 @@ public class CandidatePicsReceiver extends Thread {
 		}		
 	}
 	
-	/*
+	/**
 	 * Listen for pics sent by the connected terminal through the stream passed by the constructor
 	 */
 	
@@ -83,7 +83,7 @@ public class CandidatePicsReceiver extends Thread {
 		}		
 	}
 	
-	/*
+	/**
 	 * Create grayscale luminance maps from the pics sent by the smartphones. Then save the map and the
 	 * accompanying tag in the local storage.
 	 */
@@ -126,7 +126,7 @@ public class CandidatePicsReceiver extends Thread {
 					break;
 			}
 			
-			// Get the directory where to save the untagged pic 
+			// Get the directory where to save the pic 
 			String picsPath = absolutePath.concat(tagDirectoryPath);
 			File picsDirectory = new File(picsPath);
 			

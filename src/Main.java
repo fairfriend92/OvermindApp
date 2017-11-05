@@ -157,13 +157,27 @@ public class Main {
 				if (excNodesListModel.isEmpty() | inhNodesListModel.isEmpty()) {
 					updateLogPanel("Select an input and output layer first.", Color.RED);
 				} else {
-					disablePanel(); // During the learning phase the user shouldn't change the network topology. 
-					boolean networkTopologyIsOK = networkTrainer.checkNetworkTopology();					
-					if (!networkTopologyIsOK) {
-						resetNetwork(); // Restore the network to its original state. 
-					} else {
-						networkTrainer.setSynapticWeights();
-					}
+					disablePanel(); // During the learning phase the user shouldn't change the network topology.
+					
+					boolean noErrorRaised = networkTrainer.checkNetworkTopology();	
+					
+					if (noErrorRaised) {							
+					
+						// Sending the weights to the terminals can take a long time so,
+						// to not block the GUI thread, this is done on a separate thread. 
+						Thread setWeightsThread = new Thread() {
+							@Override
+							public void run() {
+								super.run();
+								networkTrainer.setSynapticWeights();
+							}
+						};		
+						
+						noErrorRaised = networkTrainer.startTraining();				
+					} 
+					
+					if (!noErrorRaised)
+						resetNetwork();												
 				}
 			}
 		});
@@ -182,10 +196,14 @@ public class Main {
 				} else {
 					updateLogPanel("Node added to exc. nodes.", Color.BLACK); 
 					
+					// Prevent the user from stimulating the terminal.
+					selectedNode.terminalFrame.noneRadioButton.doClick();
+					selectedNode.terminalFrame.randomSpikesRadioButton.setEnabled(false);
+					selectedNode.terminalFrame.refreshSignalRadioButton.setEnabled(false);
+					
 					if (excNodesListModel.contains("No excitatory node")) // The default message should be cleared if a node is added to the list.
 						excNodesListModel.clear();
 					
-					selectedNode.isExternallyStimulated = true;
 					excNodesListModel.addElement(selectedNode.terminal.ip);
 					excNodes.add(selectedNode);
 					
@@ -207,6 +225,8 @@ public class Main {
 					
 				} else {
 					excNodes.get(selectionIndex).isExternallyStimulated = false;
+					excNodes.get(selectionIndex).terminalFrame.randomSpikesRadioButton.setEnabled(true);
+					excNodes.get(selectionIndex).terminalFrame.refreshSignalRadioButton.setEnabled(true);					
 					excNodes.remove(selectionIndex);
 					excNodesListModel.remove(selectionIndex);
 					
@@ -235,6 +255,10 @@ public class Main {
 				} else {
 					updateLogPanel("Node added to inh. nodes.", Color.BLACK); 
 					
+					selectedNode.terminalFrame.noneRadioButton.doClick();
+					selectedNode.terminalFrame.randomSpikesRadioButton.setEnabled(false);
+					selectedNode.terminalFrame.refreshSignalRadioButton.setEnabled(false);
+					
 					if (inhNodesListModel.contains("No inhibitory node"))
 						inhNodesListModel.clear();
 					
@@ -258,6 +282,8 @@ public class Main {
 					updateLogPanel("No inh. nodes to remove.", Color.RED); 
 					
 				} else {
+					inhNodes.get(selectionIndex).terminalFrame.randomSpikesRadioButton.setEnabled(true);
+					inhNodes.get(selectionIndex).terminalFrame.refreshSignalRadioButton.setEnabled(true);
 					inhNodes.remove(selectionIndex);
 					inhNodesListModel.remove(selectionIndex);
 					
@@ -291,7 +317,16 @@ public class Main {
 	 */
 	
 	private static void resetNetwork() {
+		// Create a dummy Terminal object with the sole purpose of identifying the 
+		// input sender among the presynaptic terminals of the excNode and to remove it. 
+		com.example.overmind.Terminal server = new com.example.overmind.Terminal();
+		server.ip = CandidatePicsReceiver.serverIP;
+		server.natPort = Constants.UDP_PORT;
+		
 		for (Node excNode : excNodes) {
+			excNode.terminal.presynapticTerminals.remove(server);
+			excNode.terminalFrame.randomSpikesRadioButton.setEnabled(true);
+			excNode.terminalFrame.refreshSignalRadioButton.setEnabled(true);
 			excNode.isExternallyStimulated = false;
 			
 			if (!VirtualLayerManager.availableNodes.contains(excNode))
@@ -299,6 +334,9 @@ public class Main {
 		}
 		
 		for (Node inhNode : inhNodes) {
+			inhNode.terminalFrame.randomSpikesRadioButton.setEnabled(true);
+			inhNode.terminalFrame.refreshSignalRadioButton.setEnabled(true);
+			
 			if (!VirtualLayerManager.availableNodes.contains(inhNode))
 				VirtualLayerManager.availableNodes.add(inhNode);
 		}
