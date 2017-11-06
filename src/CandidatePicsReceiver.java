@@ -13,7 +13,7 @@ public class CandidatePicsReceiver extends Thread {
 	
 	static String serverIP = null;
 	private static boolean shutdown = false;
-	private ExecutorService cachedThreadPoolExecutor = Executors.newCachedThreadPool(); 
+	static ExecutorService cachedThreadPoolExecutor = Executors.newCachedThreadPool(); 
 	
 	@Override
 	public void run() {
@@ -88,7 +88,7 @@ public class CandidatePicsReceiver extends Thread {
 	 * accompanying tag in the local storage.
 	 */
 	
-	private class ConvertGrayscale implements Runnable {
+	static class ConvertGrayscale implements Runnable {
 		private int[] pixels;
 		private float[] grayscalePixels;
 		private int tag;
@@ -123,6 +123,9 @@ public class CandidatePicsReceiver extends Thread {
 			switch (tag) {
 				case Constants.UNDETERMINED:
 					tagDirectoryPath = "/resources/pics/untagged";
+					break;
+				case Constants.TRACK:
+					tagDirectoryPath = "/resources/pics/tagged/track";
 					break;
 			}
 			

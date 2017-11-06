@@ -280,9 +280,7 @@ public class NetworkTrainer {
 		
 		ObjectInputStream objectInputStream = null; // To read the Candidate object from the file stream.
         FileInputStream fileInputStream = null; // To read from the file.
-        GrayscaleCandidate[] grayscaleCandidates = new GrayscaleCandidate[trainingSetFiles.length]; 
-        
-        System.out.println("test0");
+        GrayscaleCandidate[] grayscaleCandidates = new GrayscaleCandidate[trainingSetFiles.length];        
         
         // Convert the files into objects and save them. 
         for (int i = 0; i < trainingSetFiles.length; i++) {
@@ -293,9 +291,7 @@ public class NetworkTrainer {
         	} catch (ClassNotFoundException | IOException e) {
         		System.out.println(e);
         	} 
-        }
-        
-        System.out.println("test");
+        }        
         
         /*
          * Train the network using all the retrieved grayscale candidates.
@@ -304,7 +300,7 @@ public class NetworkTrainer {
         // Each input layer has its own candidate object which serves as input.
         GrayscaleCandidate[] inputCandidates = new GrayscaleCandidate[Main.excNodes.size()];
         
-        // At each new interation of the training session send a different grayscale map to the input layers.
+        // At each new iteration of the training session send a different grayscale map to the input layers.
         for (GrayscaleCandidate candidate : grayscaleCandidates) {
         	Arrays.fill(inputCandidates, candidate); // In this implementation the inputs of the nodes are all the same. 
         	Node[] inputLayers = new Node[Main.excNodes.size()];

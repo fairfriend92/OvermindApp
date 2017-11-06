@@ -4,8 +4,14 @@ import java.awt.Component;
 import java.awt.GridLayout;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
+import java.awt.image.BufferedImage;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.io.ObjectInputStream;
 import java.util.ArrayList;
 
+import javax.imageio.ImageIO;
 import javax.swing.BorderFactory;
 import javax.swing.BoxLayout;
 import javax.swing.DefaultListModel;
@@ -61,6 +67,8 @@ public class Main {
 		serverInterfacer.start();
 		
 		displayMainFrame();
+		
+		populatePicsFolders();
 	}
 	
 	private static void displayMainFrame() {
@@ -308,6 +316,70 @@ public class Main {
 		mainFrame.pack();
 		mainFrame.setAlwaysOnTop(true);
 		mainFrame.setVisible(true);
+	}
+	
+	private static boolean populatePicsFolders() {
+		
+		/*
+		 * Get all the bitmaps that need to be converted into luminance 
+		 * maps.
+		 */
+		
+		String path = new File("").getAbsolutePath();
+		path = path.concat("/resources/pics/database");
+		File databasedDir = new File(path);
+		File[] databasePics = databasedDir.listFiles();
+		
+		if (databasePics.length == 0 | databasePics == null) {
+			updateLogPanel("No pics in the database", Color.RED);
+			return false;
+		}		
+		
+		/*
+		 * Extract the RGB data from the bitmap and send it to 
+		 * CandidatePicsReceiver to be converted into a luminance map. 
+		 */
+        
+        for (File pic : databasePics) {
+        	// Read the bitmap.
+        	BufferedImage bitmap = null;
+        	try {
+        		bitmap = ImageIO.read(pic.getAbsoluteFile());
+        	} catch (IOException e) {
+        		System.out.println(e);
+        	} 
+        	assert bitmap != null;
+        	
+        	// Extract the RGB data. 
+        	int[] pixels = new int[bitmap.getWidth() * bitmap.getHeight()];
+        	pixels = bitmap.getRGB(0, 0, bitmap.getWidth(), bitmap.getHeight(), pixels, 0, bitmap.getWidth());
+        	
+        	int tag = 0; // The tag to be associated with the luminance map.
+        	String fileName = pic.getName(); // The name of the file containing the tag. 
+        	boolean fileNameIsValid = true; // Flag used to signal if the file name does not contain any tag.
+        	
+        	// Retreive the tag to associate with the map in the GrayscaleCandidate object from the file name.
+        	if (fileName.contains("undetermined"))
+        		tag = Constants.UNDETERMINED;
+        	else if (fileName.contains("track"))
+        		tag = Constants.TRACK;
+        	else {
+        		fileNameIsValid = false;
+        		System.out.println("" + fileName + " is not a valid file name.");
+        	}
+        	
+        	// If the tag could be determined, run the Runnable that computes the luminance map. 
+        	if (fileNameIsValid) {
+        		CandidatePicsReceiver.ConvertGrayscale convertGrayscale = new CandidatePicsReceiver.ConvertGrayscale(pixels, tag);
+        		convertGrayscale.run();
+        		pic.delete();
+        	}
+        	
+        }        
+        
+        updateLogPanel("" + databasePics.length + " pics converted", Color.BLACK);
+		
+        return true;
 	}
 	
 	/**

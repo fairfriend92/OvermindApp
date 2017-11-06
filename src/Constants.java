@@ -2,6 +2,7 @@
 public class Constants {	    
     /* Particle flags */
     static final int UNDETERMINED = 0;
+    static final int TRACK = 1;
     
     /* Application constants */
     static int STIMULATION_LENGTH = 200; // Length in ms of the period during which the inputs are presented to the network.
