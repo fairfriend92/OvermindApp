@@ -52,21 +52,21 @@ public class SpikeInputCreator {
 	 * get the dimensional one. 
 	 */
 	
-	public float[] computeFiringRate(ArrayList<byte[]> spikeTrains, short numOfSynapses) {
-		float[] firingRates = new float[numOfSynapses];
+	public static float[] computeFiringRate(ArrayList<byte[]> spikeTrains, short numOfNeurons) {
+		float[] firingRates = new float[numOfNeurons];
 		
 		// Each element of the ArrayList is the spike input at a different time		
 		for (byte[] spikeInput : spikeTrains) { // Iterating over time
-			for (int index = 0; index < numOfSynapses; index++) { // Iterating over the synapses of the input
+			for (int index = 0; index < numOfNeurons; index++) { // Iterating over the the neurons that produced the spike trains
 				int byteIndex = index / 8;
 				
-				// If the current synapse had received a spike, increase the firing rate
+				// If the current neuron had emitted a spike, increase the firing rate
 				firingRates[index] = ((spikeInput[byteIndex] >> (index - byteIndex * 8)) & 1) == 1 ? 
 						firingRates[index] + 1 : firingRates[index];
 			}
 		}
 		
-		// To get the firing rate divide the number of times the synapses have received a spike 
+		// To get the firing rate divide the number of times the neurons have emitted a spike 
 		// for the length of the spike train
 		for (float firingRate : firingRates)
 			firingRate /= spikeTrains.size();

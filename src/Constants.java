@@ -13,9 +13,12 @@ public class Constants {
     /* Network related constants */
 	static final int IPTOS_THROUGHPUT = 0x08;
 	static final int MUON_DETECTOR_SERVER_PORT = 4197; // Port for the sending of pics from the MuonDetector application.
-	static final int UDP_PORT = 4194; // Port through which the app send the Poisson spikes trains to the clients. 
+	static final int APP_UDP_PORT = 4197; // Port through which the app send the Poisson spikes trains to the clients. 
     static final int IPTOS_RELIABILITY = 0x04;
     
     /* Math constants */
     static final int NANO_TO_MILLS_FACTOR = 1000000;
+    
+    /* Resource constants */
+	static final short MAX_DATA_BYTES = 8192;
 }

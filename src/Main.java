@@ -393,10 +393,16 @@ public class Main {
 		// input sender among the presynaptic terminals of the excNode and to remove it. 
 		com.example.overmind.Terminal server = new com.example.overmind.Terminal();
 		server.ip = CandidatePicsReceiver.serverIP;
-		server.natPort = Constants.UDP_PORT;
+		server.natPort = Constants.APP_UDP_PORT;
 		
 		for (Node excNode : excNodes) {
+			// Only if the node had been connected to the server increase the number of dendrites
+			// to the original value. 
+			if (excNode.terminal.presynapticTerminals.remove(server)) {
+				excNode.terminal.numOfDendrites += Constants.MAX_PIC_PIXELS;
+			}
 			excNode.terminal.presynapticTerminals.remove(server);
+			
 			excNode.terminalFrame.randomSpikesRadioButton.setEnabled(true);
 			excNode.terminalFrame.refreshSignalRadioButton.setEnabled(true);
 			excNode.isExternallyStimulated = false;

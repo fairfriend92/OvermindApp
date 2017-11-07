@@ -3,7 +3,12 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.ObjectInputStream;
+import java.net.DatagramPacket;
+import java.net.DatagramSocket;
+import java.net.SocketException;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.Random;
 
 public class NetworkTrainer {	
@@ -244,21 +249,32 @@ public class NetworkTrainer {
 		
 		/*
 		 * Add the input sender to the presynaptic connections of the terminals
-		 * underlying the excitatory nodes. 
+		 * underlying the excitatory nodes. Add the server to the postsynaptic connections
+		 * and create a buffer for the spike trains of each node.
 		 */
 		
+    	// Create a collection for each node to store the spike train from which the firing rates can be computed.    	
+		// TODO: This must be a concurrent has map. The object must be a class which stores both the postsynaptic and the presynaptic
+		// spike trains buffers. The presynaptics spike trains buffer are populated by NetworkStimulator.InputSender().
+    	HashMap<Integer, ArrayList<byte[]>> spikeTrainsBuffersMap = new HashMap<>(Main.excNodes.size());    	
+    			
 		for (Node excNode : Main.excNodes) {
+			// Create the buffer which will store the spike train produced by excNode. 
+			spikeTrainsBuffersMap.put(excNode.physicalID, new ArrayList<byte[]>(Constants.STIMULATION_LENGTH / Constants.DELTA_TIME));
+			
 			// Create a Terminal object holding all the info regarding this server,
 			// which is the input sender. 
 			com.example.overmind.Terminal server = new com.example.overmind.Terminal();
 			server.numOfNeurons = (short) Constants.MAX_PIC_PIXELS;
-			server.numOfSynapses = excNode.terminal.numOfNeurons;
-			server.numOfDendrites = server.numOfSynapses;
+			server.numOfSynapses = 0;
+			server.numOfDendrites = excNode.terminal.numOfNeurons;
 			server.ip = CandidatePicsReceiver.serverIP;
-			server.natPort = Constants.UDP_PORT;
+			server.natPort = Constants.APP_UDP_PORT;
 			
 			excNode.terminal.presynapticTerminals.add(server);
+			excNode.terminal.postsynapticTerminals.add(server);
 			excNode.terminal.numOfDendrites -= Constants.MAX_PIC_PIXELS;
+			// TODO: decrease the synapses by excNode.terminal.numOfNeurons? See VirtualLayerManager todo note. 
 			VirtualLayerManager.unsyncNodes.add(excNode);
 		}
 		
@@ -289,7 +305,7 @@ public class NetworkTrainer {
         		objectInputStream = new ObjectInputStream(fileInputStream);
         		grayscaleCandidates[i] = (GrayscaleCandidate) objectInputStream.readObject();
         	} catch (ClassNotFoundException | IOException e) {
-        		System.out.println(e);
+        		e.printStackTrace();
         	} 
         }        
         
@@ -300,11 +316,24 @@ public class NetworkTrainer {
         // Each input layer has its own candidate object which serves as input.
         GrayscaleCandidate[] inputCandidates = new GrayscaleCandidate[Main.excNodes.size()];
         
+        // Create an array of nodes from the collection. 
+        Node[] inputLayers = new Node[Main.excNodes.size()];
+    	Main.excNodes.toArray(inputLayers);
+    	
+    	/* Create the datagram socket used to read the incoming spikes. */
+    	
+    	DatagramSocket spikesReceiver = null;
+    	try {
+    		spikesReceiver = new DatagramSocket(Constants.APP_UDP_PORT);
+    		spikesReceiver.setTrafficClass(Constants.IPTOS_THROUGHPUT);
+    	} catch (SocketException e) {
+    		e.printStackTrace();
+    	}
+    	assert spikesReceiver != null;    	
+        
         // At each new iteration of the training session send a different grayscale map to the input layers.
         for (GrayscaleCandidate candidate : grayscaleCandidates) {
-        	Arrays.fill(inputCandidates, candidate); // In this implementation the inputs of the nodes are all the same. 
-        	Node[] inputLayers = new Node[Main.excNodes.size()];
-        	Main.excNodes.toArray(inputLayers);
+        	Arrays.fill(inputCandidates, candidate); // In this implementation the inputs of the nodes are all the same.         	
         	
         	// Stimulate the input layers with the candidate grayscale map.
         	boolean noErrorRaised = 
@@ -316,12 +345,34 @@ public class NetworkTrainer {
         	
         	// Wait before sending the new stimulus according to the PAUSE_LENGTH constant. 
         	long finishingTime = System.nanoTime();
-        	while ((System.nanoTime() - finishingTime) / Constants.NANO_TO_MILLS_FACTOR < 
-        			Constants.PAUSE_LENGTH) {
-        		// TODO: Here we read the output of the nodes and build the rates to do the learning.  
+        	while ((System.nanoTime() - finishingTime) / Constants.NANO_TO_MILLS_FACTOR < // TODO: Add condition to check if all the packets have arrived?
+        			Constants.PAUSE_LENGTH) {    
+        		// Receive the datagram packet with the latest spikes array.        		
+        		DatagramPacket spikesPacket = null;
+    			byte[] spikesBuffer = new byte[Constants.MAX_DATA_BYTES];
+        		try {
+        			spikesPacket = new DatagramPacket(spikesBuffer, Constants.MAX_DATA_BYTES);
+        			spikesReceiver.receive(spikesPacket);
+        			spikesBuffer = spikesPacket.getData();
+        		} catch (IOException e) {
+        			e.printStackTrace();
+        		}
+        		
+        		// Add the spikes array to the spikes train of the node which sent the packet. 
+        		if (spikesPacket != null) {
+					int ipHashCode = spikesPacket.getAddress().hashCode();			
+	        		spikeTrainsBuffersMap.get(ipHashCode).add(spikesBuffer);
+        		}
+        	}
+        	
+        	for (Node excNode : Main.excNodes) {
+        		ArrayList<byte[]> spikeTrains = spikeTrainsBuffersMap.get(excNode.physicalID);         		
+        		float[] postsynapticFiringRates = SpikeInputCreator.computeFiringRate(spikeTrains, excNode.terminal.numOfNeurons);
         	}
         }
-		
+        
+        spikeTrainsBuffersMap.clear();
+        
 		return true;		
 	}
 	
