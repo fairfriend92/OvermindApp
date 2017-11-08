@@ -10,14 +10,146 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Random;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class NetworkTrainer {	
+	
+	// A collection for each node to store the presynaptic and postsynaptic spike trains. 	
+	static ConcurrentHashMap<Integer, SpikeTrainsBuffers> spikeTrainsBuffersMap = null;  
+	
+	/**
+	 * Simple class that stores two buffers, one for the presynaptic spike trains and 
+	 * of for the postsynaptic ones. 
+	 */
+	
+	static class SpikeTrainsBuffers {
+		ArrayList<byte[]> presynapticSpikeTrains;
+		ArrayList<byte[]> postsynapticSpikeTrains;
+		short numOfSpikeTrains = 0;
+		
+		SpikeTrainsBuffers(ArrayList<byte[]> presynapticSpikeTrains, ArrayList<byte[]> postsynapticSpikeTrains) {
+			this.presynapticSpikeTrains = presynapticSpikeTrains;
+			this.postsynapticSpikeTrains = postsynapticSpikeTrains;
+		}
+	}
+	
+	/**
+	 * Class that waits for UDP packets to arrive at a specific port and
+	 * stores their contents into the spike trains buffers of the nodes they come from.  
+	 */
+	
+	private static class SpikesReceiver extends Thread {
+		
+		boolean shutdown = false;
+		
+		/**
+		 * Inner class that implements Runnable and takes care of adding the latest
+		 * spikes array to the spike trains buffer of the sender node. If the buffer is
+		 * full, the worker thread computes the firing rate based on the stored 
+		 * spike trains. 
+		 */
+		
+		private class WorkerThread implements Runnable {
+			DatagramPacket spikesPacket;
+			byte[] spikesBuffer;
+			
+			WorkerThread(DatagramPacket spikesPacket, byte[] spikesBuffer) {
+				this.spikesPacket = spikesPacket;
+				this.spikesBuffer = spikesBuffer;
+			}
+			
+			@Override
+			public void run() {
+        		if (spikesPacket != null) {
+        			
+    				/* Add the spikes array to the spike trains of the node which sent the packet. */
+        			
+					int ipHashCode = spikesPacket.getAddress().hashCode();
+					Node node = VirtualLayerManager.nodesTable.get(ipHashCode); // Get a reference to the node which  sent the packet.
+					float[] totalWeights = VirtualLayerManager.weightsTable.get(node.virtualID); // Get the weights of all the neurons of the node. 
+        			SpikeTrainsBuffers spikeTrainsBuffers = spikeTrainsBuffersMap.get(ipHashCode); // Get a reference to the object storing the buffers.
+	        		spikeTrainsBuffers.postsynapticSpikeTrains.add(spikesBuffer); // Add the latest spike array to the postsynaptic spike trains buffer. 
+	        		
+	        		/* If the buffer is full it's time to compute the firing rate and apply the learning rule. */
+	        			        		
+	        		if (spikeTrainsBuffers.postsynapticSpikeTrains.size() == Constants.STIMULATION_LENGTH / Constants.DELTA_TIME) {
+	        			float[] presynapticFiringRates = 
+	        					SpikeInputCreator.computeFiringRate(spikeTrainsBuffers.presynapticSpikeTrains, spikeTrainsBuffers.numOfSpikeTrains);
+	        			float[] postsynapticFiringRates =
+	        					SpikeInputCreator.computeFiringRate(spikeTrainsBuffers.postsynapticSpikeTrains, node.terminal.numOfNeurons);
+	        			
+	        			int offset = 0; // The offset accounts for the synaptic weights that come before those that carry the stimulus. 
+        				for (int nodeIndex = 0; nodeIndex < node.presynapticNodes.size() - 1; nodeIndex++)
+        					offset += node.presynapticNodes.get(nodeIndex).terminal.numOfNeurons;        				
+        				float[] partialWeights = new float[spikeTrainsBuffers.numOfSpikeTrains]; // Store the weights of the input synapses for a given neuron.  
+        				float[] finalWeights = new float[spikeTrainsBuffers.numOfSpikeTrains * node.terminal.numOfNeurons]; // Store the weights of ALL the input synapses.
+        				int[] weightsIndexes = new int[spikeTrainsBuffers.numOfSpikeTrains * node.terminal.numOfNeurons]; 
+	        			
+        				/* Apply the learning rule for each neuron using its firing rate and that of the input synapses. */
+        				        				
+	        			for (int neuronIndex = 0; neuronIndex < node.terminal.numOfNeurons; neuronIndex++) {
+	        				System.arraycopy(totalWeights, neuronIndex * node.originalNumOfSynapses + offset, partialWeights, 0, partialWeights.length);
+	        				partialWeights = stdpBasedLearning(presynapticFiringRates, postsynapticFiringRates[neuronIndex], partialWeights);
+	        				System.arraycopy(partialWeights, 0, finalWeights, spikeTrainsBuffers.numOfSpikeTrains * neuronIndex, partialWeights.length);
+	        				for (int weightIndex = 0; weightIndex < partialWeights.length; weightIndex++)
+	        					weightsIndexes[neuronIndex * partialWeights.length + weightIndex] = neuronIndex * node.originalNumOfSynapses + offset + weightIndex;
+	        			}
+	        			
+	        			node.terminal.newWeights = finalWeights;
+	        			node.terminal.newWeightsIndexes = weightsIndexes;
+	        			VirtualLayerManager.unsyncNodes.add(node);	        			
+	        		}
+        		}
+			}
+		}
+		
+		@Override
+		public void run() {
+			super.run();
+			
+			ExecutorService cachedThreadPoolExecutor = Executors.newCachedThreadPool();			
+						
+	    	/* Create the datagram socket used to read the incoming spikes. */
+	    	
+	    	DatagramSocket spikesReceiver = null;
+	    	try {
+	    		spikesReceiver = new DatagramSocket(Constants.APP_UDP_PORT);
+	    		spikesReceiver.setTrafficClass(Constants.IPTOS_THROUGHPUT);
+	    	} catch (SocketException e) {
+	    		e.printStackTrace();
+	    	}
+	    	assert spikesReceiver != null;    	
+	    	
+	    	while (!shutdown) {
+	    		// Receive the datagram packet with the latest spikes array.        		
+        		DatagramPacket spikesPacket = null;
+    			byte[] spikesBuffer = new byte[Constants.MAX_DATA_BYTES];
+        		try {
+        			spikesPacket = new DatagramPacket(spikesBuffer, Constants.MAX_DATA_BYTES);
+        			spikesReceiver.receive(spikesPacket);
+        			spikesBuffer = spikesPacket.getData();
+        		} catch (IOException e) {
+        			e.printStackTrace();
+        		}
+        		
+        		// Create a worker thread to add the the latest spikes to the sender node buffer
+        		// and eventually compute the firing rate. 
+        		cachedThreadPoolExecutor.execute(new WorkerThread(spikesPacket, spikesBuffer));        		
+        		
+	    	}
+	    	
+	    	spikesReceiver.close();	    	
+		}
+		
+	}
 	
 	/**
 	 * Application of the STDP rate based learning rule. 
 	 */
 	
-	public float[] stdpBasedLearning(float[] presynapticRates, float postsynapticRate, float[] weights) {
+	private static float[] stdpBasedLearning(float[] presynapticRates, float postsynapticRate, float[] weights) {
 		if (presynapticRates.length != weights.length) {
 			System.out.println("ERROR: length of presynapticRates and weights vectors are not the same.");
 			return null;
@@ -247,20 +379,21 @@ public class NetworkTrainer {
 		
 		NetworkStimulator networkStimulator = new NetworkStimulator();
 		
+		spikeTrainsBuffersMap = new ConcurrentHashMap<>(Main.excNodes.size()); // Size the hash map. 
+		
 		/*
 		 * Add the input sender to the presynaptic connections of the terminals
 		 * underlying the excitatory nodes. Add the server to the postsynaptic connections
 		 * and create a buffer for the spike trains of each node.
-		 */
-		
-    	// Create a collection for each node to store the spike train from which the firing rates can be computed.    	
-		// TODO: This must be a concurrent has map. The object must be a class which stores both the postsynaptic and the presynaptic
-		// spike trains buffers. The presynaptics spike trains buffer are populated by NetworkStimulator.InputSender().
-    	HashMap<Integer, ArrayList<byte[]>> spikeTrainsBuffersMap = new HashMap<>(Main.excNodes.size());    	
+		 */			
     			
 		for (Node excNode : Main.excNodes) {
 			// Create the buffer which will store the spike train produced by excNode. 
-			spikeTrainsBuffersMap.put(excNode.physicalID, new ArrayList<byte[]>(Constants.STIMULATION_LENGTH / Constants.DELTA_TIME));
+			ArrayList<byte[]> presynapticSpikeTrains = new ArrayList<byte[]>(Constants.STIMULATION_LENGTH / Constants.DELTA_TIME);
+			ArrayList<byte[]> postsynapticSpikeTrains = new ArrayList<byte[]>(Constants.STIMULATION_LENGTH / Constants.DELTA_TIME);			
+			SpikeTrainsBuffers nodeSpikeTrains = 
+					new SpikeTrainsBuffers(presynapticSpikeTrains, postsynapticSpikeTrains);			
+			spikeTrainsBuffersMap.put(excNode.physicalID, nodeSpikeTrains);
 			
 			// Create a Terminal object holding all the info regarding this server,
 			// which is the input sender. 
@@ -318,21 +451,15 @@ public class NetworkTrainer {
         
         // Create an array of nodes from the collection. 
         Node[] inputLayers = new Node[Main.excNodes.size()];
-    	Main.excNodes.toArray(inputLayers);
+    	Main.excNodes.toArray(inputLayers);    	
     	
-    	/* Create the datagram socket used to read the incoming spikes. */
-    	
-    	DatagramSocket spikesReceiver = null;
-    	try {
-    		spikesReceiver = new DatagramSocket(Constants.APP_UDP_PORT);
-    		spikesReceiver.setTrafficClass(Constants.IPTOS_THROUGHPUT);
-    	} catch (SocketException e) {
-    		e.printStackTrace();
-    	}
-    	assert spikesReceiver != null;    	
+    	// Start the thread that asynchronously store the incoming spike trains.
+    	SpikesReceiver spikesReceiver = new SpikesReceiver();
+    	spikesReceiver.start();
         
-        // At each new iteration of the training session send a different grayscale map to the input layers.
-        for (GrayscaleCandidate candidate : grayscaleCandidates) {
+    	/* Repeat the training for all the candidates in the training set */
+    	
+    	for (GrayscaleCandidate candidate : grayscaleCandidates) {
         	Arrays.fill(inputCandidates, candidate); // In this implementation the inputs of the nodes are all the same.         	
         	
         	// Stimulate the input layers with the candidate grayscale map.
@@ -342,35 +469,19 @@ public class NetworkTrainer {
         		Main.updateLogPanel("Error occurred during the stimulation", Color.RED);
         		return false;
         	}
-        	
+        	        	
         	// Wait before sending the new stimulus according to the PAUSE_LENGTH constant. 
         	long finishingTime = System.nanoTime();
-        	while ((System.nanoTime() - finishingTime) / Constants.NANO_TO_MILLS_FACTOR < // TODO: Add condition to check if all the packets have arrived?
+        	while ((System.nanoTime() - finishingTime) / Constants.NANO_TO_MILLS_FACTOR < 
         			Constants.PAUSE_LENGTH) {    
-        		// Receive the datagram packet with the latest spikes array.        		
-        		DatagramPacket spikesPacket = null;
-    			byte[] spikesBuffer = new byte[Constants.MAX_DATA_BYTES];
-        		try {
-        			spikesPacket = new DatagramPacket(spikesBuffer, Constants.MAX_DATA_BYTES);
-        			spikesReceiver.receive(spikesPacket);
-        			spikesBuffer = spikesPacket.getData();
-        		} catch (IOException e) {
-        			e.printStackTrace();
-        		}
-        		
-        		// Add the spikes array to the spikes train of the node which sent the packet. 
-        		if (spikesPacket != null) {
-					int ipHashCode = spikesPacket.getAddress().hashCode();			
-	        		spikeTrainsBuffersMap.get(ipHashCode).add(spikesBuffer);
-        		}
-        	}
+        		        		
+        	}       	
         	
-        	for (Node excNode : Main.excNodes) {
-        		ArrayList<byte[]> spikeTrains = spikeTrainsBuffersMap.get(excNode.physicalID);         		
-        		float[] postsynapticFiringRates = SpikeInputCreator.computeFiringRate(spikeTrains, excNode.terminal.numOfNeurons);
-        	}
+        	VirtualLayerManager.syncNodes();
+
         }
         
+        spikesReceiver.shutdown = true;        
         spikeTrainsBuffersMap.clear();
         
 		return true;		
