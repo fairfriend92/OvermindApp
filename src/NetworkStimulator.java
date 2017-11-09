@@ -83,9 +83,7 @@ public class NetworkStimulator {
 		}
 		
 		@Override
-		public void run() {
-			long lastTime = 0; // Time at which the input was sent the last time.
-			
+		public void run() {			
 			inputLayer.isExternallyStimulated = true;
 			
 			// Socket used to send the input to the node. 
@@ -110,9 +108,8 @@ public class NetworkStimulator {
 	        // Send a new input, Poisson distributed, to the node every deltaTime
 	        // for a total of numOfIterations times. 
 			for (int index = 0; index < numOfIterations; index++) {
-				while((System.nanoTime() - lastTime) / Constants.NANO_TO_MILLS_FACTOR < deltaTime) // TODO: other ways other than a busy loop?
+				long startingTime = System.nanoTime();				
 				
-				lastTime = System.nanoTime();
 				byte[] spikeInput = SpikeInputCreator.createFromLuminance(input.grayscalePixels);
 				
 				// Add the generated spikes array to the presynaptic spike trains buffer of the input layer. 
@@ -127,6 +124,10 @@ public class NetworkStimulator {
 					outputSocket.send(spikeInputPacket);
 				} catch (IOException e) {
 					System.out.println(e);
+				}		
+				
+				while((System.nanoTime() - startingTime) / Constants.NANO_TO_MILLS_FACTOR < deltaTime) {
+					// TODO: other ways other than a busy loop?
 				}
 			}
 			

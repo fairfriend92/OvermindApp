@@ -185,7 +185,11 @@ public class Main {
 					} 
 					
 					if (!noErrorRaised)
-						resetNetwork();												
+						resetNetwork();	
+					else {
+						enablePanel();
+						updateLogPanel("Training complete", Color.BLACK);
+					}
 				}
 			}
 		});
@@ -405,7 +409,7 @@ public class Main {
 			
 			excNode.terminalFrame.randomSpikesRadioButton.setEnabled(true);
 			excNode.terminalFrame.refreshSignalRadioButton.setEnabled(true);
-			excNode.isExternallyStimulated = false;
+			excNode.isExternallyStimulated = false; // TODO: This field should be unnecessary. 
 			
 			if (!VirtualLayerManager.availableNodes.contains(excNode))
 				VirtualLayerManager.availableNodes.add(excNode);			

@@ -13,6 +13,7 @@ import java.util.Random;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 public class NetworkTrainer {	
 	
@@ -67,14 +68,16 @@ public class NetworkTrainer {
     				/* Add the spikes array to the spike trains of the node which sent the packet. */
         			
 					int ipHashCode = spikesPacket.getAddress().hashCode();
-					Node node = VirtualLayerManager.nodesTable.get(ipHashCode); // Get a reference to the node which  sent the packet.
-					float[] totalWeights = VirtualLayerManager.weightsTable.get(node.virtualID); // Get the weights of all the neurons of the node. 
         			SpikeTrainsBuffers spikeTrainsBuffers = spikeTrainsBuffersMap.get(ipHashCode); // Get a reference to the object storing the buffers.
 	        		spikeTrainsBuffers.postsynapticSpikeTrains.add(spikesBuffer); // Add the latest spike array to the postsynaptic spike trains buffer. 
+	        		
+	        		System.out.println("" + spikeTrainsBuffers.postsynapticSpikeTrains.size());
 	        		
 	        		/* If the buffer is full it's time to compute the firing rate and apply the learning rule. */
 	        			        		
 	        		if (spikeTrainsBuffers.postsynapticSpikeTrains.size() == Constants.STIMULATION_LENGTH / Constants.DELTA_TIME) {
+						Node node = VirtualLayerManager.nodesTable.get(ipHashCode); // Get a reference to the node which  sent the packet.
+	        			
 	        			float[] presynapticFiringRates = 
 	        					SpikeInputCreator.computeFiringRate(spikeTrainsBuffers.presynapticSpikeTrains, spikeTrainsBuffers.numOfSpikeTrains);
 	        			float[] postsynapticFiringRates =
@@ -82,7 +85,9 @@ public class NetworkTrainer {
 	        			
 	        			int offset = 0; // The offset accounts for the synaptic weights that come before those that carry the stimulus. 
         				for (int nodeIndex = 0; nodeIndex < node.presynapticNodes.size() - 1; nodeIndex++)
-        					offset += node.presynapticNodes.get(nodeIndex).terminal.numOfNeurons;        				
+        					offset += node.presynapticNodes.get(nodeIndex).terminal.numOfNeurons;        	
+
+        				float[] totalWeights = VirtualLayerManager.weightsTable.get(node.virtualID); // Get the weights of all the neurons of the node. 
         				float[] partialWeights = new float[spikeTrainsBuffers.numOfSpikeTrains]; // Store the weights of the input synapses for a given neuron.  
         				float[] finalWeights = new float[spikeTrainsBuffers.numOfSpikeTrains * node.terminal.numOfNeurons]; // Store the weights of ALL the input synapses.
         				int[] weightsIndexes = new int[spikeTrainsBuffers.numOfSpikeTrains * node.terminal.numOfNeurons]; 
@@ -109,7 +114,7 @@ public class NetworkTrainer {
 		public void run() {
 			super.run();
 			
-			ExecutorService cachedThreadPoolExecutor = Executors.newCachedThreadPool();			
+			ExecutorService workerThreadsExecutor = Executors.newCachedThreadPool();			
 						
 	    	/* Create the datagram socket used to read the incoming spikes. */
 	    	
@@ -136,8 +141,20 @@ public class NetworkTrainer {
         		
         		// Create a worker thread to add the the latest spikes to the sender node buffer
         		// and eventually compute the firing rate. 
-        		cachedThreadPoolExecutor.execute(new WorkerThread(spikesPacket, spikesBuffer));        		
+        		workerThreadsExecutor.execute(new WorkerThread(spikesPacket, spikesBuffer));        		
         		
+	    	}
+	    	
+	    	/* Shutdown executor. */
+	    	
+	    	workerThreadsExecutor.shutdown();	    	
+	    	try {
+	    		boolean workerThreadsExecutorIsShutdown = workerThreadsExecutor.awaitTermination(1, TimeUnit.SECONDS);
+	    		if (!workerThreadsExecutorIsShutdown) {
+	    			System.out.println("ERROR: Failed to shutdown worker threads executor.");
+	    		}
+	    	} catch (InterruptedException e) {
+	    		e.printStackTrace();
 	    	}
 	    	
 	    	spikesReceiver.close();	    	
@@ -386,7 +403,8 @@ public class NetworkTrainer {
 		 * underlying the excitatory nodes. Add the server to the postsynaptic connections
 		 * and create a buffer for the spike trains of each node.
 		 */			
-    			
+		
+		com.example.overmind.Terminal server = new com.example.overmind.Terminal();    			
 		for (Node excNode : Main.excNodes) {
 			// Create the buffer which will store the spike train produced by excNode. 
 			ArrayList<byte[]> presynapticSpikeTrains = new ArrayList<byte[]>(Constants.STIMULATION_LENGTH / Constants.DELTA_TIME);
@@ -397,7 +415,6 @@ public class NetworkTrainer {
 			
 			// Create a Terminal object holding all the info regarding this server,
 			// which is the input sender. 
-			com.example.overmind.Terminal server = new com.example.overmind.Terminal();
 			server.numOfNeurons = (short) Constants.MAX_PIC_PIXELS;
 			server.numOfSynapses = 0;
 			server.numOfDendrites = excNode.terminal.numOfNeurons;
@@ -469,20 +486,45 @@ public class NetworkTrainer {
         		Main.updateLogPanel("Error occurred during the stimulation", Color.RED);
         		return false;
         	}
+        	
+        	System.out.println("Pause started");
         	        	
         	// Wait before sending the new stimulus according to the PAUSE_LENGTH constant. 
-        	long finishingTime = System.nanoTime();
+        	long finishingTime = System.nanoTime();        	
+
+        	/*
         	while ((System.nanoTime() - finishingTime) / Constants.NANO_TO_MILLS_FACTOR < 
         			Constants.PAUSE_LENGTH) {    
-        		        		
-        	}       	
+        	}      
+        	*/
+        	
+        	try {
+				Thread.sleep((System.nanoTime() - finishingTime) / Constants.NANO_TO_MILLS_FACTOR);
+			} catch (InterruptedException e) {
+				e.printStackTrace();
+			}
+        	
+        	System.out.println("Pause finished");     
+        	 	
         	
         	VirtualLayerManager.syncNodes();
 
         }
         
-        spikesReceiver.shutdown = true;        
+        spikesReceiver.shutdown = true;  
+        try {
+			spikesReceiver.join();
+		} catch (InterruptedException e) {
+			e.printStackTrace();
+		}        
         spikeTrainsBuffersMap.clear();
+        for (Node excNode : Main.excNodes) {
+        	excNode.terminal.presynapticTerminals.remove(server);
+        	excNode.terminal.postsynapticTerminals.remove(server);
+        	excNode.terminal.numOfDendrites += Constants.MAX_PIC_PIXELS;
+        	VirtualLayerManager.unsyncNodes.add(excNode);
+        }
+        VirtualLayerManager.syncNodes();
         
 		return true;		
 	}
