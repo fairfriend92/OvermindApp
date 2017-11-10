@@ -10,6 +10,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Random;
+import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -19,6 +20,10 @@ public class NetworkTrainer {
 	
 	// A collection for each node to store the presynaptic and postsynaptic spike trains. 	
 	static ConcurrentHashMap<Integer, SpikeTrainsBuffers> spikeTrainsBuffersMap = null;  
+	
+	// Object used to synchronize the worker thread of SpikesReceiver with thread on which 
+	// NetworkTrainer runs
+	private final static Object lock = new Object();
 	
 	/**
 	 * Simple class that stores two buffers, one for the presynaptic spike trains and 
@@ -43,6 +48,7 @@ public class NetworkTrainer {
 	
 	private static class SpikesReceiver extends Thread {
 		
+		private volatile static int numOfFullBuffers = 0;
 		boolean shutdown = false;
 		
 		/**
@@ -76,6 +82,8 @@ public class NetworkTrainer {
 	        		/* If the buffer is full it's time to compute the firing rate and apply the learning rule. */
 	        			        		
 	        		if (spikeTrainsBuffers.postsynapticSpikeTrains.size() == Constants.STIMULATION_LENGTH / Constants.DELTA_TIME) {
+	        			System.out.println("test");
+	        			
 						Node node = VirtualLayerManager.nodesTable.get(ipHashCode); // Get a reference to the node which  sent the packet.
 	        			
 	        			float[] presynapticFiringRates = 
@@ -102,9 +110,21 @@ public class NetworkTrainer {
 	        					weightsIndexes[neuronIndex * partialWeights.length + weightIndex] = neuronIndex * node.originalNumOfSynapses + offset + weightIndex;
 	        			}
 	        			
+	        			/* Update the weights */
+	        			
 	        			node.terminal.newWeights = finalWeights;
-	        			node.terminal.newWeightsIndexes = weightsIndexes;
-	        			VirtualLayerManager.unsyncNodes.add(node);	        			
+	        			node.terminal.newWeightsIndexes = weightsIndexes;		        			
+	        			VirtualLayerManager.unsyncNodes.add(node);	  
+	        			
+	        			/* Unlock the thread which sent the stimulus if the all the firing rates have been computed */
+	        			
+	        			numOfFullBuffers++;
+	        			if (numOfFullBuffers == Main.excNodes.size()) {
+	        				numOfFullBuffers = 0;
+	        				synchronized(lock) {
+	        					lock.notify();
+	        				}
+	        			}
 	        		}
         		}
 			}
@@ -277,256 +297,266 @@ public class NetworkTrainer {
 	 * the synaptic weights of each node to their default values. 
 	 */
 	
-	public void setSynapticWeights() {
-		Random randomNumber = new Random();	
+	static class SetSynapticWeights implements Runnable {
 		
-		Main.updateLogPanel("Updating weights...", Color.BLACK);
-		
-		/*
-		 * The inhibitory neurons receive input only from the excitatory ones 
-		 * (no lateral connections), therefore the synaptic weights are all positive. 
-		 */	
-		
-		for (Node inhNode : Main.inhNodes) {
-			// Compute the number of synapses that is being used. 
-			int activeSynapses = (inhNode.originalNumOfSynapses - inhNode.terminal.numOfDendrites) * inhNode.terminal.numOfNeurons;
+		@Override
+		public void run() {		
+			Random randomNumber = new Random();	
 			
-			// Create an array holding the synaptic weights that need to be changed. 
-			float[] weights = new float[activeSynapses];
-			
-			// Create an array holding the indexes of the weights that are going to be changed.
-			int[] weightsIndexes = new int[activeSynapses];
-			
-			// Update all the weights. 
-			for (int i = 0; i < weights.length; i++) {
-				weights[i] = randomNumber.nextFloat();
-				weightsIndexes[i] = i;
-			}		
-					
-			// Update the references of the inhNode object.
-			inhNode.terminal.newWeights = weights; // TODO: Assigning references is enough or should we use System.arraycopy()?
-			inhNode.terminal.newWeightsIndexes = weightsIndexes;
-			
-			// The weights of the synapses that are not active should be zero. Therefore, create an array
-			// padded with a number of zeros equal to that of the unused synapses.			
-			float[] allWeights = new float[inhNode.originalNumOfSynapses * inhNode.terminal.numOfNeurons];
-			System.arraycopy(weights, 0, allWeights, 0, weights.length);
-			
-			// Update the entry of the hash table.
-			VirtualLayerManager.weightsTable.put(inhNode.virtualID, allWeights);
-			
-			// Send the new weights to the terminal.
-			VirtualLayerManager.unsyncNodes.add(inhNode);
-		}	
-		
-		for (Node excNode : Main.excNodes) {
-			int activeSynapses = (excNode.originalNumOfSynapses - excNode.terminal.numOfDendrites) * excNode.terminal.numOfNeurons;
-			float[] weights = new float[activeSynapses];
-			int[] weightsIndexes = new int[activeSynapses];
-			
-			int offset = 0; // The last synapse for a given neuron that was considered.
+			Main.updateLogPanel("Updating weights...", Color.BLACK);
 			
 			/*
-			 * Go over all the presynaptic connections and, depending on whether the presynaptic nodes
-			 * are excitatory or inhibitory, compute random weights with either the plus or the minus sign.			
-			 */
+			 * The inhibitory neurons receive input only from the excitatory ones 
+			 * (no lateral connections), therefore the synaptic weights are all positive. 
+			 */	
 			
-			// The first presynaptic connection of an exc. node is itself, since for these nodes 
-			// lateral connections are always enabled. Since these connections don't count as a separate
-			// node, they need to be handled independently. 
-			for (int neuronIndex = 0; neuronIndex < excNode.terminal.numOfNeurons; neuronIndex++) {
-				for (int weightIndex = 0; weightIndex < excNode.terminal.presynapticTerminals.get(0).numOfNeurons; weightIndex++) {
-					weights[neuronIndex * excNode.terminal.numOfNeurons + weightIndex] = randomNumber.nextFloat();		
-					
-					weightsIndexes[neuronIndex * excNode.terminal.numOfNeurons + weightIndex] = 
-							neuronIndex * excNode.terminal.numOfNeurons + weightIndex;
-				}
-			}
-			
-			offset += excNode.terminal.presynapticTerminals.get(0).numOfNeurons;
-			
-			// Each presynaptic node is either excitatory or inhibitory, and consequently 
-			// the sign of the weight change. 
-			for (Node presynapticNode : excNode.presynapticNodes) {
-				int wieghtSign = Main.inhNodes.contains(presynapticNode) ? - 1 : 1;
+			for (Node inhNode : Main.inhNodes) {
+				// Compute the number of synapses that is being used. 
+				int activeSynapses = (inhNode.originalNumOfSynapses - inhNode.terminal.numOfDendrites) * inhNode.terminal.numOfNeurons;
 				
-				// Once the sign is computed, the synaptic weights of each neuron must be updated.
- 				for (int neuronIndex = 0; neuronIndex < excNode.terminal.numOfNeurons; neuronIndex++) {
- 					
- 					// To chance all the synapses iterate over the neurons of the presynaptic terminal. 
-					for (int weightIndex = offset; weightIndex < (offset + presynapticNode.terminal.numOfNeurons); weightIndex++) {							
-						weights[neuronIndex * excNode.terminal.numOfNeurons + weightIndex] = 
-								wieghtSign * randomNumber.nextFloat();		
+				// Create an array holding the synaptic weights that need to be changed. 
+				float[] weights = new float[activeSynapses];
+				
+				// Create an array holding the indexes of the weights that are going to be changed.
+				int[] weightsIndexes = new int[activeSynapses];
+				
+				// Update all the weights. 
+				for (int i = 0; i < weights.length; i++) {
+					weights[i] = randomNumber.nextFloat();
+					weightsIndexes[i] = i;
+				}		
+						
+				// Update the references of the inhNode object.
+				inhNode.terminal.newWeights = weights; // TODO: Assigning references is enough or should we use System.arraycopy()?
+				inhNode.terminal.newWeightsIndexes = weightsIndexes;
+				
+				// The weights of the synapses that are not active should be zero. Therefore, create an array
+				// padded with a number of zeros equal to that of the unused synapses.			
+				float[] allWeights = new float[inhNode.originalNumOfSynapses * inhNode.terminal.numOfNeurons];
+				System.arraycopy(weights, 0, allWeights, 0, weights.length);
+				
+				// Update the entry of the hash table.
+				VirtualLayerManager.weightsTable.put(inhNode.virtualID, allWeights);
+				
+				// Send the new weights to the terminal.
+				VirtualLayerManager.unsyncNodes.add(inhNode);
+			}	
+			
+			for (Node excNode : Main.excNodes) {
+				int activeSynapses = (excNode.originalNumOfSynapses - excNode.terminal.numOfDendrites) * excNode.terminal.numOfNeurons;
+				float[] weights = new float[activeSynapses];
+				int[] weightsIndexes = new int[activeSynapses];
+				
+				int offset = 0; // The last synapse for a given neuron that was considered.
+				
+				/*
+				 * Go over all the presynaptic connections and, depending on whether the presynaptic nodes
+				 * are excitatory or inhibitory, compute random weights with either the plus or the minus sign.			
+				 */
+				
+				// If lateral connections are enabled by NetworkTrainer they are not the first presynaptic connections!
+				
+				// The first presynaptic connection of an exc. node is itself, since for these nodes 
+				// lateral connections are always enabled. Since these connections don't count as a separate
+				// node, they need to be handled independently. 
+				for (int neuronIndex = 0; neuronIndex < excNode.terminal.numOfNeurons; neuronIndex++) {
+					for (int weightIndex = 0; weightIndex < excNode.terminal.presynapticTerminals.get(0).numOfNeurons; weightIndex++) {
+						weights[neuronIndex * excNode.terminal.numOfNeurons + weightIndex] = randomNumber.nextFloat();		
 						
 						weightsIndexes[neuronIndex * excNode.terminal.numOfNeurons + weightIndex] = 
 								neuronIndex * excNode.terminal.numOfNeurons + weightIndex;
+					}
+				}
+				
+				offset += excNode.terminal.presynapticTerminals.get(0).numOfNeurons;
+				
+				// Each presynaptic node is either excitatory or inhibitory, and consequently 
+				// the sign of the weight change. 
+				for (Node presynapticNode : excNode.presynapticNodes) {
+					int wieghtSign = Main.inhNodes.contains(presynapticNode) ? - 1 : 1;
+					
+					// Once the sign is computed, the synaptic weights of each neuron must be updated.
+	 				for (int neuronIndex = 0; neuronIndex < excNode.terminal.numOfNeurons; neuronIndex++) {
+	 					
+	 					// To chance all the synapses iterate over the neurons of the presynaptic terminal. 
+						for (int weightIndex = offset; weightIndex < (offset + presynapticNode.terminal.numOfNeurons); weightIndex++) {							
+							weights[neuronIndex * excNode.terminal.numOfNeurons + weightIndex] = 
+									wieghtSign * randomNumber.nextFloat();		
+							
+							weightsIndexes[neuronIndex * excNode.terminal.numOfNeurons + weightIndex] = 
+									neuronIndex * excNode.terminal.numOfNeurons + weightIndex;
+						} 
+						
+						/* [End of for over weights] */					
+						
 					} 
-					
-					/* [End of for over weights] */					
-					
+	 				
+	 				/* [End of for over neurons] */
+	 				 				
+	 				// The offset is increased to account for the synapses of a given neuron that have already been served. 
+	 				offset += presynapticNode.terminal.numOfNeurons; 				
 				} 
- 				
- 				/* [End of for over neurons] */
- 				 				
- 				// The offset is increased to account for the synapses of a given neuron that have already been served. 
- 				offset += presynapticNode.terminal.numOfNeurons; 				
+				
+				/* [End of for over presynaptic nodes] */					
+				
+				excNode.terminal.newWeights = weights;
+				excNode.terminal.newWeightsIndexes = weightsIndexes;
+				
+				float[] allWeights = new float[excNode.originalNumOfSynapses * excNode.terminal.numOfNeurons];
+				System.arraycopy(weights, 0, allWeights, 0, weights.length);
+				
+				VirtualLayerManager.weightsTable.put(excNode.virtualID, weights);
+				
+				VirtualLayerManager.unsyncNodes.add(excNode);			
 			} 
 			
-			/* [End of for over presynaptic nodes] */					
+			/* [End of for over excitatory nodes] */
 			
-			excNode.terminal.newWeights = weights;
-			excNode.terminal.newWeightsIndexes = weightsIndexes;
+			VirtualLayerManager.syncNodes();			
 			
-			float[] allWeights = new float[excNode.originalNumOfSynapses * excNode.terminal.numOfNeurons];
-			System.arraycopy(weights, 0, allWeights, 0, weights.length);
-			
-			VirtualLayerManager.weightsTable.put(excNode.virtualID, weights);
-			
-			VirtualLayerManager.unsyncNodes.add(excNode);			
-		} 
-		
-		/* [End of for over excitatory nodes] */
-		
-		VirtualLayerManager.syncNodes();			
-		
-		Main.updateLogPanel("All weights updated", Color.BLACK);		
+			Main.updateLogPanel("All weights updated", Color.BLACK);
+		}
 	}
 	
-	public boolean startTraining() {	
+	static class StartTraining implements Callable<Boolean> {
 		
-		NetworkStimulator networkStimulator = new NetworkStimulator();
-		
-		spikeTrainsBuffersMap = new ConcurrentHashMap<>(Main.excNodes.size()); // Size the hash map. 
-		
-		/*
-		 * Add the input sender to the presynaptic connections of the terminals
-		 * underlying the excitatory nodes. Add the server to the postsynaptic connections
-		 * and create a buffer for the spike trains of each node.
-		 */			
-		
-		com.example.overmind.Terminal server = new com.example.overmind.Terminal();    			
-		for (Node excNode : Main.excNodes) {
-			// Create the buffer which will store the spike train produced by excNode. 
-			ArrayList<byte[]> presynapticSpikeTrains = new ArrayList<byte[]>(Constants.STIMULATION_LENGTH / Constants.DELTA_TIME);
-			ArrayList<byte[]> postsynapticSpikeTrains = new ArrayList<byte[]>(Constants.STIMULATION_LENGTH / Constants.DELTA_TIME);			
-			SpikeTrainsBuffers nodeSpikeTrains = 
-					new SpikeTrainsBuffers(presynapticSpikeTrains, postsynapticSpikeTrains);			
-			spikeTrainsBuffersMap.put(excNode.physicalID, nodeSpikeTrains);
+		@Override
+		public Boolean call() { 			
+			Main.updateLogPanel("Training started", Color.BLACK);
 			
-			// Create a Terminal object holding all the info regarding this server,
-			// which is the input sender. 
-			server.numOfNeurons = (short) Constants.MAX_PIC_PIXELS;
-			server.numOfSynapses = 0;
-			server.numOfDendrites = excNode.terminal.numOfNeurons;
-			server.ip = CandidatePicsReceiver.serverIP;
-			server.natPort = Constants.APP_UDP_PORT;
+			NetworkStimulator networkStimulator = new NetworkStimulator();
 			
-			excNode.terminal.presynapticTerminals.add(server);
-			excNode.terminal.postsynapticTerminals.add(server);
-			excNode.terminal.numOfDendrites -= Constants.MAX_PIC_PIXELS;
-			// TODO: decrease the synapses by excNode.terminal.numOfNeurons? See VirtualLayerManager todo note. 
-			VirtualLayerManager.unsyncNodes.add(excNode);
-		}
-		
-		VirtualLayerManager.syncNodes();		
-		
-		/*
-		 * Get all the grayscale candidates files used for training. 
-		 */
-		
-		String path = new File("").getAbsolutePath();
-		path = path.concat("/resources/pics/training_set");
-		File trainingSetDir = new File(path);
-		File[] trainingSetFiles = trainingSetDir.listFiles();
-		
-		if (trainingSetFiles.length == 0 | trainingSetFiles == null) {
-			Main.updateLogPanel("No training set found", Color.RED);
-			return false;
-		}
-		
-		ObjectInputStream objectInputStream = null; // To read the Candidate object from the file stream.
-        FileInputStream fileInputStream = null; // To read from the file.
-        GrayscaleCandidate[] grayscaleCandidates = new GrayscaleCandidate[trainingSetFiles.length];        
-        
-        // Convert the files into objects and save them. 
-        for (int i = 0; i < trainingSetFiles.length; i++) {
-        	try {
-        		fileInputStream = new FileInputStream(trainingSetFiles[i]);
-        		objectInputStream = new ObjectInputStream(fileInputStream);
-        		grayscaleCandidates[i] = (GrayscaleCandidate) objectInputStream.readObject();
-        	} catch (ClassNotFoundException | IOException e) {
-        		e.printStackTrace();
-        	} 
-        }        
-        
-        /*
-         * Train the network using all the retrieved grayscale candidates.
-         */
-        
-        // Each input layer has its own candidate object which serves as input.
-        GrayscaleCandidate[] inputCandidates = new GrayscaleCandidate[Main.excNodes.size()];
-        
-        // Create an array of nodes from the collection. 
-        Node[] inputLayers = new Node[Main.excNodes.size()];
-    	Main.excNodes.toArray(inputLayers);    	
-    	
-    	// Start the thread that asynchronously store the incoming spike trains.
-    	SpikesReceiver spikesReceiver = new SpikesReceiver();
-    	spikesReceiver.start();
-        
-    	/* Repeat the training for all the candidates in the training set */
-    	
-    	for (GrayscaleCandidate candidate : grayscaleCandidates) {
-        	Arrays.fill(inputCandidates, candidate); // In this implementation the inputs of the nodes are all the same.         	
-        	
-        	// Stimulate the input layers with the candidate grayscale map.
-        	boolean noErrorRaised = 
-        			networkStimulator.stimulateWithLuminanceMap(Constants.STIMULATION_LENGTH, Constants.DELTA_TIME, inputLayers, inputCandidates);  
-        	if (!noErrorRaised) {
-        		Main.updateLogPanel("Error occurred during the stimulation", Color.RED);
-        		return false;
-        	}
-        	
-        	System.out.println("Pause started");
-        	        	
-        	// Wait before sending the new stimulus according to the PAUSE_LENGTH constant. 
-        	long finishingTime = System.nanoTime();        	
-
-        	/*
-        	while ((System.nanoTime() - finishingTime) / Constants.NANO_TO_MILLS_FACTOR < 
-        			Constants.PAUSE_LENGTH) {    
-        	}      
-        	*/
-        	
-        	try {
-				Thread.sleep((System.nanoTime() - finishingTime) / Constants.NANO_TO_MILLS_FACTOR);
+			spikeTrainsBuffersMap = new ConcurrentHashMap<>(Main.excNodes.size()); // Size the hash map. 
+			
+			/*
+			 * Add the input sender to the presynaptic connections of the terminals
+			 * underlying the excitatory nodes. Add the server to the postsynaptic connections
+			 * and create a buffer for the spike trains of each node.
+			 */			
+			
+			com.example.overmind.Terminal thisApp = new com.example.overmind.Terminal();    			
+			for (Node excNode : Main.excNodes) {
+				// Create the buffer which will store the spike train produced by excNode. 
+				ArrayList<byte[]> presynapticSpikeTrains = new ArrayList<byte[]>(Constants.STIMULATION_LENGTH / Constants.DELTA_TIME);
+				ArrayList<byte[]> postsynapticSpikeTrains = new ArrayList<byte[]>(Constants.STIMULATION_LENGTH / Constants.DELTA_TIME);			
+				SpikeTrainsBuffers nodeSpikeTrains = 
+						new SpikeTrainsBuffers(presynapticSpikeTrains, postsynapticSpikeTrains);			
+				spikeTrainsBuffersMap.put(excNode.physicalID, nodeSpikeTrains);
+				
+				// Create a Terminal object holding all the info regarding this server,
+				// which is the input sender. 
+				thisApp.numOfNeurons = (short) Constants.MAX_PIC_PIXELS;
+				thisApp.numOfSynapses = 0;
+				thisApp.numOfDendrites = excNode.terminal.numOfNeurons;
+				thisApp.ip = CandidatePicsReceiver.serverIP;
+				thisApp.natPort = Constants.APP_UDP_PORT;
+				
+				excNode.terminal.presynapticTerminals.add(thisApp);
+				excNode.terminal.postsynapticTerminals.add(thisApp);
+				excNode.terminal.numOfDendrites -= Constants.MAX_PIC_PIXELS;
+				// TODO: decrease the synapses by excNode.terminal.numOfNeurons? See VirtualLayerManager todo note. 
+				VirtualLayerManager.unsyncNodes.add(excNode);
+			}
+			
+			VirtualLayerManager.syncNodes();		
+			
+			/*
+			 * Get all the grayscale candidates files used for training. 
+			 */
+			
+			String path = new File("").getAbsolutePath();
+			path = path.concat("/resources/pics/training_set");
+			File trainingSetDir = new File(path);
+			File[] trainingSetFiles = trainingSetDir.listFiles();
+			
+			if (trainingSetFiles.length == 0 | trainingSetFiles == null) {
+				Main.updateLogPanel("No training set found", Color.RED);
+				return false;
+			}
+			
+			ObjectInputStream objectInputStream = null; // To read the Candidate object from the file stream.
+	        FileInputStream fileInputStream = null; // To read from the file.
+	        GrayscaleCandidate[] grayscaleCandidates = new GrayscaleCandidate[trainingSetFiles.length];        
+	        
+	        // Convert the files into objects and save them. 
+	        for (int i = 0; i < trainingSetFiles.length; i++) {
+	        	try {
+	        		fileInputStream = new FileInputStream(trainingSetFiles[i]);
+	        		objectInputStream = new ObjectInputStream(fileInputStream);
+	        		grayscaleCandidates[i] = (GrayscaleCandidate) objectInputStream.readObject();
+	        	} catch (ClassNotFoundException | IOException e) {
+	        		e.printStackTrace();
+	        	} 
+	        }        
+	        
+	        /*
+	         * Train the network using all the retrieved grayscale candidates.
+	         */
+	        
+	        // Each input layer has its own candidate object which serves as input.
+	        GrayscaleCandidate[] inputCandidates = new GrayscaleCandidate[Main.excNodes.size()];
+	        
+	        // Create an array of nodes from the collection. 
+	        Node[] inputLayers = new Node[Main.excNodes.size()];
+	    	Main.excNodes.toArray(inputLayers);    	
+	    	
+	    	// Start the thread that asynchronously store the incoming spike trains.
+	    	SpikesReceiver spikesReceiver = new SpikesReceiver();
+	    	spikesReceiver.start();
+	        
+	    	/* Repeat the training for all the candidates in the training set */
+	    	
+	    	for (GrayscaleCandidate candidate : grayscaleCandidates) {
+	        	Arrays.fill(inputCandidates, candidate); // In this implementation the inputs of the nodes are all the same.         	
+	        	
+	        	// Stimulate the input layers with the candidate grayscale map.
+	        	boolean noErrorRaised = 
+	        			networkStimulator.stimulateWithLuminanceMap(Constants.STIMULATION_LENGTH, Constants.DELTA_TIME, inputLayers, inputCandidates);  
+	        	if (!noErrorRaised) {
+	        		Main.updateLogPanel("Error occurred during the stimulation", Color.RED);
+	        		return false;
+	        	}
+	        	
+	        	System.out.println("Pause started");
+	        	        	
+	        	long pauseStartTime = System.nanoTime();        	
+	
+	        	/*
+	       	    // Wait before sending the new stimulus according to the PAUSE_LENGTH constant. 
+	        	while ((System.nanoTime() - pauseStartTime) / Constants.NANO_TO_MILLS_FACTOR < 
+	        			Constants.PAUSE_LENGTH) {    
+	        	}      
+	        	*/        	
+	        	
+	        	synchronized(lock) {
+	        		try {
+						lock.wait();
+					} catch (InterruptedException e) {
+						e.printStackTrace();
+					}
+	        	}
+	        	        	
+	        	System.out.println("Pause length: " + (System.nanoTime() - pauseStartTime) / Constants.NANO_TO_MILLS_FACTOR + " ms");     
+	        	 	
+	        	
+	        	VirtualLayerManager.syncNodes();
+	        }
+	        
+	        spikesReceiver.shutdown = true;  
+	        try {
+				spikesReceiver.join();
 			} catch (InterruptedException e) {
 				e.printStackTrace();
-			}
-        	
-        	System.out.println("Pause finished");     
-        	 	
-        	
-        	VirtualLayerManager.syncNodes();
-
-        }
-        
-        spikesReceiver.shutdown = true;  
-        try {
-			spikesReceiver.join();
-		} catch (InterruptedException e) {
-			e.printStackTrace();
-		}        
-        spikeTrainsBuffersMap.clear();
-        for (Node excNode : Main.excNodes) {
-        	excNode.terminal.presynapticTerminals.remove(server);
-        	excNode.terminal.postsynapticTerminals.remove(server);
-        	excNode.terminal.numOfDendrites += Constants.MAX_PIC_PIXELS;
-        	VirtualLayerManager.unsyncNodes.add(excNode);
-        }
-        VirtualLayerManager.syncNodes();
-        
-		return true;		
+			}        
+	        spikeTrainsBuffersMap.clear();
+	        for (Node excNode : Main.excNodes) {
+	        	Main.removeThisAppFromConnections(excNode.terminal);
+	        	VirtualLayerManager.unsyncNodes.add(excNode);
+	        }
+	        VirtualLayerManager.syncNodes();
+	        
+			return true;		
+		}
 	}
 	
 }

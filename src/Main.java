@@ -10,6 +10,11 @@ import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 import javax.imageio.ImageIO;
 import javax.swing.BorderFactory;
@@ -69,6 +74,8 @@ public class Main {
 		displayMainFrame();
 		
 		populatePicsFolders();
+		
+		// TODO: Handle applicaiton shutdown.
 	}
 	
 	private static void displayMainFrame() {
@@ -169,20 +176,18 @@ public class Main {
 					
 					boolean noErrorRaised = networkTrainer.checkNetworkTopology();	
 					
-					if (noErrorRaised) {							
-					
-						// Sending the weights to the terminals can take a long time so,
-						// to not block the GUI thread, this is done on a separate thread. 
-						Thread setWeightsThread = new Thread() {
-							@Override
-							public void run() {
-								super.run();
-								networkTrainer.setSynapticWeights();
-							}
-						};		
-						
-						noErrorRaised = networkTrainer.startTraining();				
-					} 
+					if (noErrorRaised) {		
+						ExecutorService test = Executors.newFixedThreadPool(1);
+						test.execute(new NetworkTrainer.SetSynapticWeights());
+						/*
+						Future<Boolean> future = test.submit(new NetworkTrainer.StartTraining());
+						try {
+							noErrorRaised = future.get();
+						} catch (InterruptedException | ExecutionException e) {
+							e.printStackTrace();
+						} 
+						*/
+					} 					
 					
 					if (!noErrorRaised)
 						resetNetwork();	
@@ -392,20 +397,9 @@ public class Main {
 	 * testing phase and the application must be interrupted. 
 	 */
 	
-	private static void resetNetwork() {
-		// Create a dummy Terminal object with the sole purpose of identifying the 
-		// input sender among the presynaptic terminals of the excNode and to remove it. 
-		com.example.overmind.Terminal server = new com.example.overmind.Terminal();
-		server.ip = CandidatePicsReceiver.serverIP;
-		server.natPort = Constants.APP_UDP_PORT;
-		
+	private static void resetNetwork() {		
 		for (Node excNode : excNodes) {
-			// Only if the node had been connected to the server increase the number of dendrites
-			// to the original value. 
-			if (excNode.terminal.presynapticTerminals.remove(server)) {
-				excNode.terminal.numOfDendrites += Constants.MAX_PIC_PIXELS;
-			}
-			excNode.terminal.presynapticTerminals.remove(server);
+			removeThisAppFromConnections(excNode.terminal);
 			
 			excNode.terminalFrame.randomSpikesRadioButton.setEnabled(true);
 			excNode.terminalFrame.refreshSignalRadioButton.setEnabled(true);
@@ -432,6 +426,34 @@ public class Main {
 		inhNodesListModel.addElement("No inhibitory node");
 		
 		enablePanel();
+	}
+	
+	/**
+	 * Method used to remove any reference of this app from the pre- and postsynaptic connections
+	 * of a given terminal, since the equals method of the Terminal object cannot differentiate between
+	 * this app and the Overmind server terminal. 
+	 * @param terminal
+	 */
+	
+	static void removeThisAppFromConnections(com.example.overmind.Terminal terminal) {
+		Iterator<com.example.overmind.Terminal> iterator = terminal.presynapticTerminals.iterator();
+		while (iterator.hasNext()) {
+			com.example.overmind.Terminal presynapticTerminal = (com.example.overmind.Terminal) iterator.next();
+			if (presynapticTerminal.natPort == Constants.APP_UDP_PORT & 
+					presynapticTerminal.ip.equals(terminal.serverIP)) {
+				iterator.remove();
+				terminal.numOfDendrites += Constants.MAX_PIC_PIXELS;
+			}
+		}
+			
+		iterator = terminal.postsynapticTerminals.iterator();
+		while (iterator.hasNext()) {
+			com.example.overmind.Terminal postsynapticTerminal = (com.example.overmind.Terminal) iterator.next();
+			if (postsynapticTerminal.natPort == Constants.APP_UDP_PORT &
+					postsynapticTerminal.ip.equals(terminal.serverIP)) {
+				iterator.remove();
+			}
+		}			
 	}
 	
 	/**
