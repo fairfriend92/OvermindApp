@@ -306,107 +306,73 @@ public class NetworkTrainer {
 			Main.updateLogPanel("Updating weights...", Color.BLACK);
 			
 			/*
-			 * The inhibitory neurons receive input only from the excitatory ones 
-			 * (no lateral connections), therefore the synaptic weights are all positive. 
-			 */	
+			 * Compute random weights for all the synapses of the excitatory and inhibitory nodes.
+			 */
 			
 			for (Node inhNode : Main.inhNodes) {
-				// Compute the number of synapses that is being used. 
-				int activeSynapses = (inhNode.originalNumOfSynapses - inhNode.terminal.numOfDendrites) * inhNode.terminal.numOfNeurons;
+				// Number of synapse per neuron that are effectively used.
+				int activeSynPerNeuron = inhNode.originalNumOfSynapses - inhNode.terminal.numOfSynapses;
 				
-				// Create an array holding the synaptic weights that need to be changed. 
-				float[] weights = new float[activeSynapses];
+				// Array intended to store all the weights, including null weights for the synapses that are not active.
+				float[] weights = new float[inhNode.originalNumOfSynapses * inhNode.terminal.numOfNeurons];
 				
-				// Create an array holding the indexes of the weights that are going to be changed.
-				int[] weightsIndexes = new int[activeSynapses];
+				// Array storing the indexes of only the weights that are different from zero.
+				int[] weightsIndexes = new int[activeSynPerNeuron * inhNode.terminal.numOfNeurons];				
 				
-				// Update all the weights. 
-				for (int i = 0; i < weights.length; i++) {
-					weights[i] = randomNumber.nextFloat();
-					weightsIndexes[i] = i;
-				}		
-						
-				// Update the references of the inhNode object.
-				inhNode.terminal.newWeights = weights; // TODO: Assigning references is enough or should we use System.arraycopy()?
-				inhNode.terminal.newWeightsIndexes = weightsIndexes;
+				// Iterate over all the neurons of the present terminal.
+				for (int neuronIndex = 0; neuronIndex < inhNode.terminal.numOfNeurons; neuronIndex++) {
+					// Iterate over all the presynaptic connections of the terminal.
+					for (com.example.overmind.Terminal presynapticTerminal : inhNode.terminal.presynapticTerminals) {
+						// Iterate over all the synapses coming from any given presynaptic connections.
+						for (int weightIndex = 0; weightIndex < presynapticTerminal.numOfNeurons; weightIndex++) {
+							weights[neuronIndex * inhNode.originalNumOfSynapses + weightIndex] = randomNumber.nextFloat();
+							weightsIndexes[neuronIndex * activeSynPerNeuron + weightIndex] = neuronIndex * inhNode.originalNumOfSynapses + weightIndex;
+						}
+					}
+				}			
 				
-				// The weights of the synapses that are not active should be zero. Therefore, create an array
-				// padded with a number of zeros equal to that of the unused synapses.			
-				float[] allWeights = new float[inhNode.originalNumOfSynapses * inhNode.terminal.numOfNeurons];
-				System.arraycopy(weights, 0, allWeights, 0, weights.length);
-				
-				// Update the entry of the hash table.
-				VirtualLayerManager.weightsTable.put(inhNode.virtualID, allWeights);
-				
-				// Send the new weights to the terminal.
-				VirtualLayerManager.unsyncNodes.add(inhNode);
+				VirtualLayerManager.weightsTable.put(inhNode.virtualID, weights);
+
+				// Create a sparse array containing only the weights that have been changed. 
+				float[] sparseWeightsArray = new float[activeSynPerNeuron * inhNode.terminal.numOfNeurons];
+				for (int weightIndex = 0; weightIndex < inhNode.terminal.numOfNeurons * activeSynPerNeuron; weightIndex++) {
+					sparseWeightsArray[weightIndex] = weights[weightsIndexes[weightIndex]];
+				}
+									
+				inhNode.terminal.newWeights = sparseWeightsArray;
+				inhNode.terminal.newWeightsIndexes = weightsIndexes;				
+								
+				VirtualLayerManager.unsyncNodes.add(inhNode);	
 			}	
 			
+			// Algorithm is almost identical for excitatory nodes.
 			for (Node excNode : Main.excNodes) {
-				int activeSynapses = (excNode.originalNumOfSynapses - excNode.terminal.numOfDendrites) * excNode.terminal.numOfNeurons;
-				float[] weights = new float[activeSynapses];
-				int[] weightsIndexes = new int[activeSynapses];
+				int activeSynPerNeuron = excNode.originalNumOfSynapses - excNode.terminal.numOfSynapses;
+				float[] weights = new float[excNode.originalNumOfSynapses * excNode.terminal.numOfNeurons];
+				int[] weightsIndexes = new int[activeSynPerNeuron * excNode.terminal.numOfNeurons];				
 				
-				int offset = 0; // The last synapse for a given neuron that was considered.
-				
-				/*
-				 * Go over all the presynaptic connections and, depending on whether the presynaptic nodes
-				 * are excitatory or inhibitory, compute random weights with either the plus or the minus sign.			
-				 */
-				
-				// If lateral connections are enabled by NetworkTrainer they are not the first presynaptic connections!
-				
-				// The first presynaptic connection of an exc. node is itself, since for these nodes 
-				// lateral connections are always enabled. Since these connections don't count as a separate
-				// node, they need to be handled independently. 
 				for (int neuronIndex = 0; neuronIndex < excNode.terminal.numOfNeurons; neuronIndex++) {
-					for (int weightIndex = 0; weightIndex < excNode.terminal.presynapticTerminals.get(0).numOfNeurons; weightIndex++) {
-						weights[neuronIndex * excNode.terminal.numOfNeurons + weightIndex] = randomNumber.nextFloat();		
-						
-						weightsIndexes[neuronIndex * excNode.terminal.numOfNeurons + weightIndex] = 
-								neuronIndex * excNode.terminal.numOfNeurons + weightIndex;
+					for (com.example.overmind.Terminal presynapticTerminal : excNode.terminal.presynapticTerminals) {
+						// The only difference is here: The presynaptic connection can either be excitatory or inhibitory,
+						// therefore the sign of the weights must be checked first. 
+						int weightSign = Main.inhNodes.contains(presynapticTerminal) ? - 1 : 1;
+						for (int weightIndex = 0; weightIndex < presynapticTerminal.numOfNeurons; weightIndex++) {
+							weights[neuronIndex * excNode.originalNumOfSynapses + weightIndex] = weightSign * randomNumber.nextFloat();
+							weightsIndexes[neuronIndex * activeSynPerNeuron + weightIndex] = neuronIndex * excNode.originalNumOfSynapses + weightIndex;
+						}
 					}
-				}
-				
-				offset += excNode.terminal.presynapticTerminals.get(0).numOfNeurons;
-				
-				// Each presynaptic node is either excitatory or inhibitory, and consequently 
-				// the sign of the weight change. 
-				for (Node presynapticNode : excNode.presynapticNodes) {
-					int wieghtSign = Main.inhNodes.contains(presynapticNode) ? - 1 : 1;
-					
-					// Once the sign is computed, the synaptic weights of each neuron must be updated.
-	 				for (int neuronIndex = 0; neuronIndex < excNode.terminal.numOfNeurons; neuronIndex++) {
-	 					
-	 					// To chance all the synapses iterate over the neurons of the presynaptic terminal. 
-						for (int weightIndex = offset; weightIndex < (offset + presynapticNode.terminal.numOfNeurons); weightIndex++) {							
-							weights[neuronIndex * excNode.terminal.numOfNeurons + weightIndex] = 
-									wieghtSign * randomNumber.nextFloat();		
-							
-							weightsIndexes[neuronIndex * excNode.terminal.numOfNeurons + weightIndex] = 
-									neuronIndex * excNode.terminal.numOfNeurons + weightIndex;
-						} 
-						
-						/* [End of for over weights] */					
-						
-					} 
-	 				
-	 				/* [End of for over neurons] */
-	 				 				
-	 				// The offset is increased to account for the synapses of a given neuron that have already been served. 
-	 				offset += presynapticNode.terminal.numOfNeurons; 				
-				} 
-				
-				/* [End of for over presynaptic nodes] */					
-				
-				excNode.terminal.newWeights = weights;
-				excNode.terminal.newWeightsIndexes = weightsIndexes;
-				
-				float[] allWeights = new float[excNode.originalNumOfSynapses * excNode.terminal.numOfNeurons];
-				System.arraycopy(weights, 0, allWeights, 0, weights.length);
+				}			
 				
 				VirtualLayerManager.weightsTable.put(excNode.virtualID, weights);
-				
+
+				float[] sparseWeightsArray = new float[activeSynPerNeuron * excNode.terminal.numOfNeurons];
+				for (int weightIndex = 0; weightIndex < excNode.terminal.numOfNeurons * activeSynPerNeuron; weightIndex++) {
+					sparseWeightsArray[weightIndex] = weights[weightsIndexes[weightIndex]];
+				}
+									
+				excNode.terminal.newWeights = sparseWeightsArray;
+				excNode.terminal.newWeightsIndexes = weightsIndexes;				
+								
 				VirtualLayerManager.unsyncNodes.add(excNode);			
 			} 
 			

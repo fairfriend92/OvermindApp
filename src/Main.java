@@ -15,6 +15,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import javax.imageio.ImageIO;
 import javax.swing.BorderFactory;
@@ -174,18 +175,40 @@ public class Main {
 				} else {
 					disablePanel(); // During the learning phase the user shouldn't change the network topology.
 					
-					boolean noErrorRaised = networkTrainer.checkNetworkTopology();	
+					//boolean noErrorRaised = networkTrainer.checkNetworkTopology();	
+					boolean noErrorRaised = true;
 					
 					if (noErrorRaised) {		
-						ExecutorService test = Executors.newFixedThreadPool(1);
-						test.execute(new NetworkTrainer.SetSynapticWeights());
+						// To not block the GUI thread the training of the network is handled by a separate thread.
+						ExecutorService networkTrainerThreadsExecutor = Executors.newFixedThreadPool(1);
+						
+						Future<?> setSynWeightsFuture = networkTrainerThreadsExecutor.submit(new NetworkTrainer.SetSynapticWeights());	
 						/*
-						Future<Boolean> future = test.submit(new NetworkTrainer.StartTraining());
 						try {
-							noErrorRaised = future.get();
+							setSynWeightsFuture.get(); // Wait for the setting of the weights process to complete. 
 						} catch (InterruptedException | ExecutionException e) {
 							e.printStackTrace();
 						} 
+						
+						Future<Boolean> startTrainingFuture = networkTrainerThreadsExecutor.submit(new NetworkTrainer.StartTraining());
+						try {
+							noErrorRaised = startTrainingFuture.get();
+						} catch (InterruptedException | ExecutionException e) {
+							e.printStackTrace();
+						} 
+						
+						
+						networkTrainerThreadsExecutor.shutdown();
+						try {
+							boolean isExecutorShutdown = networkTrainerThreadsExecutor.awaitTermination(1, TimeUnit.SECONDS);
+							if (!isExecutorShutdown) {
+								System.out.println("ERROR: failed to shutdown network trainer executor");
+								updateLogPanel("Failed to shutdown executor", Color.RED);
+								noErrorRaised = false;
+							}
+						} catch (InterruptedException e) {
+							e.printStackTrace();
+						}
 						*/
 					} 					
 					
