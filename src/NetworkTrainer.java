@@ -112,7 +112,7 @@ public class NetworkTrainer {
 	        			
 	        			/* Update the weights */
 	        			
-	        			node.terminal.newWeights = finalWeights;
+	        			//node.terminal.newWeights = finalWeights;
 	        			node.terminal.newWeightsIndexes = weightsIndexes;		        			
 	        			VirtualLayerManager.unsyncNodes.add(node);	  
 	        			
@@ -334,9 +334,9 @@ public class NetworkTrainer {
 				VirtualLayerManager.weightsTable.put(inhNode.virtualID, weights);
 
 				// Create a sparse array containing only the weights that have been changed. 
-				float[] sparseWeightsArray = new float[activeSynPerNeuron * inhNode.terminal.numOfNeurons];
+				byte[] sparseWeightsArray = new byte[activeSynPerNeuron * inhNode.terminal.numOfNeurons];
 				for (int weightIndex = 0; weightIndex < inhNode.terminal.numOfNeurons * activeSynPerNeuron; weightIndex++) {
-					sparseWeightsArray[weightIndex] = weights[weightsIndexes[weightIndex]];
+					sparseWeightsArray[weightIndex] = (byte)(weights[weightsIndexes[weightIndex]] / Constants.MIN_WEIGHT);
 				}
 									
 				inhNode.terminal.newWeights = sparseWeightsArray;
@@ -365,9 +365,9 @@ public class NetworkTrainer {
 				
 				VirtualLayerManager.weightsTable.put(excNode.virtualID, weights);
 
-				float[] sparseWeightsArray = new float[activeSynPerNeuron * excNode.terminal.numOfNeurons];
+				byte[] sparseWeightsArray = new byte[activeSynPerNeuron * excNode.terminal.numOfNeurons];
 				for (int weightIndex = 0; weightIndex < excNode.terminal.numOfNeurons * activeSynPerNeuron; weightIndex++) {
-					sparseWeightsArray[weightIndex] = weights[weightsIndexes[weightIndex]];
+					sparseWeightsArray[weightIndex] = (byte)(weights[weightsIndexes[weightIndex]] / Constants.MIN_WEIGHT);
 				}
 									
 				excNode.terminal.newWeights = sparseWeightsArray;
