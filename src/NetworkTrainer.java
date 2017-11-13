@@ -332,16 +332,29 @@ public class NetworkTrainer {
 				}			
 				
 				VirtualLayerManager.weightsTable.put(inhNode.virtualID, weights);
-
-				// Create a sparse array containing only the weights that have been changed. 
-				byte[] sparseWeightsArray = new byte[activeSynPerNeuron * inhNode.terminal.numOfNeurons];
-				for (int weightIndex = 0; weightIndex < inhNode.terminal.numOfNeurons * activeSynPerNeuron; weightIndex++) {
-					sparseWeightsArray[weightIndex] = (byte)(weights[weightsIndexes[weightIndex]] / Constants.MIN_WEIGHT);
+				
+				// Compute whether it is more convenient to send to the terminal a sparse array or a full array. 
+				if (activeSynPerNeuron * inhNode.terminal.numOfNeurons * Constants.SIZE_OF_FLOAT + weightsIndexes.length * Constants.SIZE_OF_INT < 
+						weights.length * Constants.SIZE_OF_BYTE) {
+					// Create a sparse array containing only the weights that have been changed. 
+					byte[] sparseWeightsArray = new byte[activeSynPerNeuron * inhNode.terminal.numOfNeurons];
+					for (int weightIndex = 0; weightIndex < inhNode.terminal.numOfNeurons * activeSynPerNeuron; weightIndex++) {
+						sparseWeightsArray[weightIndex] = (byte)(weights[weightsIndexes[weightIndex]] / Constants.MIN_WEIGHT);
+					}
+					
+					inhNode.terminal.newWeights = sparseWeightsArray;
+					inhNode.terminal.newWeightsIndexes = weightsIndexes; 
+				} else {
+					// Convert to byte all the weights stored as float. 
+					byte[] weightsInByte = new byte[weights.length];
+					for (int weightIndex = 0; weightIndex < weights.length; weightIndex++) {
+						weightsInByte[weightIndex] = (byte)(weights[weightIndex] / Constants.MIN_WEIGHT);
+					}
+					
+					inhNode.terminal.newWeights = weightsInByte;
+					inhNode.terminal.newWeightsIndexes = new int[] {0}; 
 				}
-									
-				inhNode.terminal.newWeights = sparseWeightsArray;
-				inhNode.terminal.newWeightsIndexes = weightsIndexes;				
-								
+												
 				VirtualLayerManager.unsyncNodes.add(inhNode);	
 			}	
 			
@@ -365,13 +378,26 @@ public class NetworkTrainer {
 				
 				VirtualLayerManager.weightsTable.put(excNode.virtualID, weights);
 
-				byte[] sparseWeightsArray = new byte[activeSynPerNeuron * excNode.terminal.numOfNeurons];
-				for (int weightIndex = 0; weightIndex < excNode.terminal.numOfNeurons * activeSynPerNeuron; weightIndex++) {
-					sparseWeightsArray[weightIndex] = (byte)(weights[weightsIndexes[weightIndex]] / Constants.MIN_WEIGHT);
-				}
-									
-				excNode.terminal.newWeights = sparseWeightsArray;
-				excNode.terminal.newWeightsIndexes = weightsIndexes;				
+				if (activeSynPerNeuron * excNode.terminal.numOfNeurons * Constants.SIZE_OF_FLOAT + weightsIndexes.length * Constants.SIZE_OF_INT < 
+						weights.length * Constants.SIZE_OF_BYTE) {
+					byte[] sparseWeightsArray = new byte[activeSynPerNeuron * excNode.terminal.numOfNeurons];
+					for (int weightIndex = 0; weightIndex < excNode.terminal.numOfNeurons * activeSynPerNeuron; weightIndex++) {
+						sparseWeightsArray[weightIndex] = (byte)(weights[weightsIndexes[weightIndex]] / Constants.MIN_WEIGHT);
+					}
+					
+					System.out.println("sparse");
+					
+					excNode.terminal.newWeights = sparseWeightsArray;
+					excNode.terminal.newWeightsIndexes = weightsIndexes; 
+				} else {
+					byte[] weightsInByte = new byte[weights.length];
+					for (int weightIndex = 0; weightIndex < weights.length; weightIndex++) {
+						weightsInByte[weightIndex] = (byte)(weights[weightIndex] / Constants.MIN_WEIGHT);
+					}
+					
+					excNode.terminal.newWeights = weightsInByte;
+					excNode.terminal.newWeightsIndexes = new int[] {0}; 
+				}				
 								
 				VirtualLayerManager.unsyncNodes.add(excNode);			
 			} 

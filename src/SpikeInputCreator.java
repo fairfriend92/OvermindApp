@@ -13,6 +13,8 @@ public class SpikeInputCreator {
 	 * Create a spike input from a map of pixel luminance
 	 */
 	
+	// TODO: Implement refractoriness?
+	
 	public static byte[] createFromLuminance(float[] grayscalePixels) {
 		byte[] spikeInput;
 		short lengthInBytes; // How many bytes are needed to represent the spike input?

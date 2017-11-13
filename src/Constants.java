@@ -19,6 +19,9 @@ public class Constants {
     /* Math constants */
     static final int NANO_TO_MILLS_FACTOR = 1000000;
     static final float MIN_WEIGHT = 0.0078f;
+    static final int SIZE_OF_FLOAT = 4;
+    static final int SIZE_OF_BYTE = 1;
+    static final int SIZE_OF_INT = 4;
     
     /* Resource constants */
 	static final short MAX_DATA_BYTES = 8192;
