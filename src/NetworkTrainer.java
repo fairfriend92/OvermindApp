@@ -12,8 +12,10 @@ import java.util.HashMap;
 import java.util.Random;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
 public class NetworkTrainer {	
@@ -204,7 +206,7 @@ public class NetworkTrainer {
 	 * to build a network such as the specific one needed by this app, MuonDetectorTeacher. 
 	 */
 	
-	public boolean checkNetworkTopology() {
+	boolean networkTopologyIsOK() {
 		for (Node excNode : Main.excNodes) {
 			
 			/*
@@ -297,116 +299,115 @@ public class NetworkTrainer {
 	 * the synaptic weights of each node to their default values. 
 	 */
 	
-	static class SetSynapticWeights implements Runnable {
+	void setSynapticWeights() {		
+		Random randomNumber = new Random();				
 		
-		@Override
-		public void run() {		
-			Random randomNumber = new Random();	
+		/*
+		 * Compute random weights for all the synapses of the excitatory and inhibitory nodes.
+		 */
+		
+		for (Node inhNode : Main.inhNodes) {
+			// Number of synapse per neuron that are effectively used.
+			int activeSynPerNeuron = inhNode.originalNumOfSynapses - inhNode.terminal.numOfSynapses;
 			
-			Main.updateLogPanel("Updating weights...", Color.BLACK);
+			// Array intended to store all the weights, including null weights for the synapses that are not active.
+			float[] weights = new float[inhNode.originalNumOfSynapses * inhNode.terminal.numOfNeurons];
 			
-			/*
-			 * Compute random weights for all the synapses of the excitatory and inhibitory nodes.
-			 */
+			// Array storing the indexes of only the weights that are different from zero.
+			int[] weightsIndexes = new int[activeSynPerNeuron * inhNode.terminal.numOfNeurons];				
 			
-			for (Node inhNode : Main.inhNodes) {
-				// Number of synapse per neuron that are effectively used.
-				int activeSynPerNeuron = inhNode.originalNumOfSynapses - inhNode.terminal.numOfSynapses;
-				
-				// Array intended to store all the weights, including null weights for the synapses that are not active.
-				float[] weights = new float[inhNode.originalNumOfSynapses * inhNode.terminal.numOfNeurons];
-				
-				// Array storing the indexes of only the weights that are different from zero.
-				int[] weightsIndexes = new int[activeSynPerNeuron * inhNode.terminal.numOfNeurons];				
-				
-				// Iterate over all the neurons of the present terminal.
-				for (int neuronIndex = 0; neuronIndex < inhNode.terminal.numOfNeurons; neuronIndex++) {
-					// Iterate over all the presynaptic connections of the terminal.
-					for (com.example.overmind.Terminal presynapticTerminal : inhNode.terminal.presynapticTerminals) {
-						// Iterate over all the synapses coming from any given presynaptic connections.
-						for (int weightIndex = 0; weightIndex < presynapticTerminal.numOfNeurons; weightIndex++) {
-							weights[neuronIndex * inhNode.originalNumOfSynapses + weightIndex] = randomNumber.nextFloat();
-							weightsIndexes[neuronIndex * activeSynPerNeuron + weightIndex] = neuronIndex * inhNode.originalNumOfSynapses + weightIndex;
-						}
+			// Iterate over all the neurons of the present terminal.
+			for (int neuronIndex = 0; neuronIndex < inhNode.terminal.numOfNeurons; neuronIndex++) {
+				// Iterate over all the presynaptic connections of the terminal.
+				for (com.example.overmind.Terminal presynapticTerminal : inhNode.terminal.presynapticTerminals) {
+					// Iterate over all the synapses coming from any given presynaptic connections.
+					for (int weightIndex = 0; weightIndex < presynapticTerminal.numOfNeurons; weightIndex++) {
+						weights[neuronIndex * inhNode.originalNumOfSynapses + weightIndex] = randomNumber.nextFloat();
+						weightsIndexes[neuronIndex * activeSynPerNeuron + weightIndex] = neuronIndex * inhNode.originalNumOfSynapses + weightIndex;
 					}
-				}			
-				
-				VirtualLayerManager.weightsTable.put(inhNode.virtualID, weights);
-				
-				// Compute whether it is more convenient to send to the terminal a sparse array or a full array. 
-				if (activeSynPerNeuron * inhNode.terminal.numOfNeurons * Constants.SIZE_OF_FLOAT + weightsIndexes.length * Constants.SIZE_OF_INT < 
-						weights.length * Constants.SIZE_OF_BYTE) {
-					// Create a sparse array containing only the weights that have been changed. 
-					byte[] sparseWeightsArray = new byte[activeSynPerNeuron * inhNode.terminal.numOfNeurons];
-					for (int weightIndex = 0; weightIndex < inhNode.terminal.numOfNeurons * activeSynPerNeuron; weightIndex++) {
-						sparseWeightsArray[weightIndex] = (byte)(weights[weightsIndexes[weightIndex]] / Constants.MIN_WEIGHT);
-					}
-					
-					inhNode.terminal.newWeights = sparseWeightsArray;
-					inhNode.terminal.newWeightsIndexes = weightsIndexes; 
-				} else {
-					// Convert to byte all the weights stored as float. 
-					byte[] weightsInByte = new byte[weights.length];
-					for (int weightIndex = 0; weightIndex < weights.length; weightIndex++) {
-						weightsInByte[weightIndex] = (byte)(weights[weightIndex] / Constants.MIN_WEIGHT);
-					}
-					
-					inhNode.terminal.newWeights = weightsInByte;
-					inhNode.terminal.newWeightsIndexes = new int[] {0}; 
 				}
-												
-				VirtualLayerManager.unsyncNodes.add(inhNode);	
-			}	
+			}			
 			
-			// Algorithm is almost identical for excitatory nodes.
-			for (Node excNode : Main.excNodes) {
-				int activeSynPerNeuron = excNode.originalNumOfSynapses - excNode.terminal.numOfSynapses;
-				float[] weights = new float[excNode.originalNumOfSynapses * excNode.terminal.numOfNeurons];
-				int[] weightsIndexes = new int[activeSynPerNeuron * excNode.terminal.numOfNeurons];				
+			VirtualLayerManager.weightsTable.put(inhNode.virtualID, weights);
+			
+			// Compute whether it is more convenient to send to the terminal a sparse array or a full array. 
+			if (activeSynPerNeuron * inhNode.terminal.numOfNeurons * Constants.SIZE_OF_FLOAT + weightsIndexes.length * Constants.SIZE_OF_INT < 
+					weights.length * Constants.SIZE_OF_BYTE) {
+				// Create a sparse array containing only the weights that have been changed. 
+				byte[] sparseWeightsArray = new byte[activeSynPerNeuron * inhNode.terminal.numOfNeurons];
+				for (int weightIndex = 0; weightIndex < inhNode.terminal.numOfNeurons * activeSynPerNeuron; weightIndex++) {
+					sparseWeightsArray[weightIndex] = (byte)(weights[weightsIndexes[weightIndex]] / Constants.MIN_WEIGHT);
+				}
 				
-				for (int neuronIndex = 0; neuronIndex < excNode.terminal.numOfNeurons; neuronIndex++) {
-					for (com.example.overmind.Terminal presynapticTerminal : excNode.terminal.presynapticTerminals) {
-						// The only difference is here: The presynaptic connection can either be excitatory or inhibitory,
-						// therefore the sign of the weights must be checked first. 
-						int weightSign = Main.inhNodes.contains(presynapticTerminal) ? - 1 : 1;
-						for (int weightIndex = 0; weightIndex < presynapticTerminal.numOfNeurons; weightIndex++) {
-							weights[neuronIndex * excNode.originalNumOfSynapses + weightIndex] = weightSign * randomNumber.nextFloat();
-							weightsIndexes[neuronIndex * activeSynPerNeuron + weightIndex] = neuronIndex * excNode.originalNumOfSynapses + weightIndex;
-						}
+				inhNode.terminal.newWeights = sparseWeightsArray;
+				inhNode.terminal.newWeightsIndexes = weightsIndexes; 
+			} else {
+				// Convert to byte all the weights stored as float. 
+				byte[] weightsInByte = new byte[weights.length];
+				for (int weightIndex = 0; weightIndex < weights.length; weightIndex++) {
+					weightsInByte[weightIndex] = (byte)(weights[weightIndex] / Constants.MIN_WEIGHT);
+				}
+				
+				inhNode.terminal.newWeights = weightsInByte;
+				inhNode.terminal.newWeightsIndexes = new int[] {0}; 
+			}
+											
+			VirtualLayerManager.unsyncNodes.add(inhNode);	
+		}	
+		
+		// Algorithm is almost identical for excitatory nodes.
+		for (Node excNode : Main.excNodes) {
+			int activeSynPerNeuron = excNode.originalNumOfSynapses - excNode.terminal.numOfSynapses;
+			float[] weights = new float[excNode.originalNumOfSynapses * excNode.terminal.numOfNeurons];
+			int[] weightsIndexes = new int[activeSynPerNeuron * excNode.terminal.numOfNeurons];				
+			
+			for (int neuronIndex = 0; neuronIndex < excNode.terminal.numOfNeurons; neuronIndex++) {
+				for (com.example.overmind.Terminal presynapticTerminal : excNode.terminal.presynapticTerminals) {
+					// The only difference is here: The presynaptic connection can either be excitatory or inhibitory,
+					// therefore the sign of the weights must be checked first. 
+					int weightSign = Main.inhNodes.contains(presynapticTerminal) ? - 1 : 1;
+					for (int weightIndex = 0; weightIndex < presynapticTerminal.numOfNeurons; weightIndex++) {
+						weights[neuronIndex * excNode.originalNumOfSynapses + weightIndex] = weightSign * randomNumber.nextFloat();
+						weightsIndexes[neuronIndex * activeSynPerNeuron + weightIndex] = neuronIndex * excNode.originalNumOfSynapses + weightIndex;
 					}
-				}			
-				
-				VirtualLayerManager.weightsTable.put(excNode.virtualID, weights);
+				}
+			}			
+			
+			VirtualLayerManager.weightsTable.put(excNode.virtualID, weights);
 
-				if (activeSynPerNeuron * excNode.terminal.numOfNeurons * Constants.SIZE_OF_FLOAT + weightsIndexes.length * Constants.SIZE_OF_INT < 
-						weights.length * Constants.SIZE_OF_BYTE) {
-					byte[] sparseWeightsArray = new byte[activeSynPerNeuron * excNode.terminal.numOfNeurons];
-					for (int weightIndex = 0; weightIndex < excNode.terminal.numOfNeurons * activeSynPerNeuron; weightIndex++) {
-						sparseWeightsArray[weightIndex] = (byte)(weights[weightsIndexes[weightIndex]] / Constants.MIN_WEIGHT);
-					}
-					
-					System.out.println("sparse");
-					
-					excNode.terminal.newWeights = sparseWeightsArray;
-					excNode.terminal.newWeightsIndexes = weightsIndexes; 
-				} else {
-					byte[] weightsInByte = new byte[weights.length];
-					for (int weightIndex = 0; weightIndex < weights.length; weightIndex++) {
-						weightsInByte[weightIndex] = (byte)(weights[weightIndex] / Constants.MIN_WEIGHT);
-					}
-					
-					excNode.terminal.newWeights = weightsInByte;
-					excNode.terminal.newWeightsIndexes = new int[] {0}; 
-				}				
-								
-				VirtualLayerManager.unsyncNodes.add(excNode);			
-			} 
-			
-			/* [End of for over excitatory nodes] */
-			
-			VirtualLayerManager.syncNodes();			
-			
-			Main.updateLogPanel("All weights updated", Color.BLACK);
+			if (activeSynPerNeuron * excNode.terminal.numOfNeurons * Constants.SIZE_OF_FLOAT + weightsIndexes.length * Constants.SIZE_OF_INT < 
+					weights.length * Constants.SIZE_OF_BYTE) {
+				byte[] sparseWeightsArray = new byte[activeSynPerNeuron * excNode.terminal.numOfNeurons];
+				for (int weightIndex = 0; weightIndex < excNode.terminal.numOfNeurons * activeSynPerNeuron; weightIndex++) {
+					sparseWeightsArray[weightIndex] = (byte)(weights[weightsIndexes[weightIndex]] / Constants.MIN_WEIGHT);
+				}
+				
+				System.out.println("sparse");
+				
+				excNode.terminal.newWeights = sparseWeightsArray;
+				excNode.terminal.newWeightsIndexes = weightsIndexes; 
+			} else {
+				byte[] weightsInByte = new byte[weights.length];
+				for (int weightIndex = 0; weightIndex < weights.length; weightIndex++) {
+					weightsInByte[weightIndex] = (byte)(weights[weightIndex] / Constants.MIN_WEIGHT);
+				}
+				
+				excNode.terminal.newWeights = weightsInByte;
+				excNode.terminal.newWeightsIndexes = new int[] {0}; 
+			}				
+							
+			VirtualLayerManager.unsyncNodes.add(excNode);			
+		} 
+		
+		/* [End of for over excitatory nodes] */
+		
+		Future<?> future = VirtualLayerManager.syncNodes();		
+		
+		// Wait for the synchronization process to be completed before proceeding.
+		try {
+			future.get();
+		} catch (InterruptedException | ExecutionException e) {
+			System.out.println("MuonTeacher: sending of the weight during the setup phase interrupted");
 		}
 	}
 	

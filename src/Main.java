@@ -64,7 +64,16 @@ public class Main {
 	private static NetworkTrainer networkTrainer = new NetworkTrainer();
 
 	public static void main(String[] args) {
-		MainFrame.main(args); // Start the Overmind server. 
+		// In every Overmind app the server should always start on a separate thread. 
+		Thread overmindServerMainThread = new Thread() { 
+			@Override
+			public void run() {
+				super.run();
+				
+				MainFrame.main(args); // Start the Overmind server. 
+			}
+		};
+		overmindServerMainThread.start();
 		
 		CandidatePicsReceiver candidatePicsReceiver = new CandidatePicsReceiver();
 		candidatePicsReceiver.start();
@@ -170,19 +179,18 @@ public class Main {
 		trainNetwork.addActionListener(new ActionListener() { 
 			@Override
 			public void actionPerformed(ActionEvent arg0) {
-				if (excNodesListModel.isEmpty() | inhNodesListModel.isEmpty()) {
+				if (excNodesListModel.isEmpty() | inhNodesListModel.isEmpty()) { // TODO: use excNodes and inhNodes instead.
 					updateLogPanel("Select an input and output layer first.", Color.RED);
 				} else {
-					disablePanel(); // During the learning phase the user shouldn't change the network topology.
+					//updateLogPanel("Training started.", Color.BLACK);
+					//disablePanel(); // During the learning phase the user shouldn't change the network topology.
 					
-					//boolean noErrorRaised = networkTrainer.checkNetworkTopology();	
-					boolean noErrorRaised = true;
+					boolean noErrorRaised = true;					
 					
-					if (noErrorRaised) {		
-						// To not block the GUI thread the training of the network is handled by a separate thread.
-						ExecutorService networkTrainerThreadsExecutor = Executors.newFixedThreadPool(1);
+					if (true) {								
+						// This may take a while. The GUI will block but that's ok because we don't want the user to interfere anyway. 
+						networkTrainer.setSynapticWeights(); 
 						
-						Future<?> setSynWeightsFuture = networkTrainerThreadsExecutor.submit(new NetworkTrainer.SetSynapticWeights());	
 						/*
 						try {
 							setSynWeightsFuture.get(); // Wait for the setting of the weights process to complete. 
@@ -210,13 +218,14 @@ public class Main {
 							e.printStackTrace();
 						}
 						*/
-					} 					
+					} 		
 					
+					updateLogPanel("Training completed.", Color.BLACK);
+										
 					if (!noErrorRaised)
 						resetNetwork();	
 					else {
 						enablePanel();
-						updateLogPanel("Training complete", Color.BLACK);
 					}
 				}
 			}
