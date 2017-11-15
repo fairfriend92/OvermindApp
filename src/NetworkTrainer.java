@@ -299,7 +299,10 @@ public class NetworkTrainer {
 	 * the synaptic weights of each node to their default values. 
 	 */
 	
-	void setSynapticWeights() {		
+	boolean setSynapticWeights() {	
+		final boolean STREAM_INTERRUPTED = false;
+		final boolean OPERATION_SUCCESSFUL = true;
+		
 		Random randomNumber = new Random();				
 		
 		/*
@@ -401,14 +404,20 @@ public class NetworkTrainer {
 		
 		/* [End of for over excitatory nodes] */
 		
-		Future<?> future = VirtualLayerManager.syncNodes();		
+		Future<Boolean> future = VirtualLayerManager.syncNodes();		
 		
 		// Wait for the synchronization process to be completed before proceeding.
 		try {
-			future.get();
+			Boolean syncSuccessful = future.get();
+			if (!syncSuccessful) {
+				Main.updateLogPanel("Weights update interrupted", Color.RED);
+				return STREAM_INTERRUPTED;
+			}
 		} catch (InterruptedException | ExecutionException e) {
-			System.out.println("MuonTeacher: sending of the weight during the setup phase interrupted");
+			e.printStackTrace();
 		}
+		
+		return OPERATION_SUCCESSFUL;
 	}
 	
 	static class StartTraining implements Callable<Boolean> {

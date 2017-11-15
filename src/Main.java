@@ -6,16 +6,9 @@ import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.image.BufferedImage;
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.IOException;
-import java.io.ObjectInputStream;
 import java.util.ArrayList;
 import java.util.Iterator;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
 
 import javax.imageio.ImageIO;
 import javax.swing.BorderFactory;
@@ -62,18 +55,13 @@ public class Main {
 	/* Custom classes */
 	
 	private static NetworkTrainer networkTrainer = new NetworkTrainer();
+	
+	/* Threading objects */
+	
+	private static Thread networkTrainerThread;
 
 	public static void main(String[] args) {
-		// In every Overmind app the server should always start on a separate thread. 
-		Thread overmindServerMainThread = new Thread() { 
-			@Override
-			public void run() {
-				super.run();
-				
-				MainFrame.main(args); // Start the Overmind server. 
-			}
-		};
-		overmindServerMainThread.start();
+		MainFrame.main(args); // Start the Overmind server. 
 		
 		CandidatePicsReceiver candidatePicsReceiver = new CandidatePicsReceiver();
 		candidatePicsReceiver.start();
@@ -85,7 +73,30 @@ public class Main {
 		
 		populatePicsFolders();
 		
-		// TODO: Handle applicaiton shutdown.
+		Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {
+	        public void run() {
+	        	candidatePicsReceiver.shutdown = true;
+	        	serverInterfacer.shutdown = true;
+	        	
+	        	try {
+					candidatePicsReceiver.serverSocket.close();
+				} catch (IOException e) {
+					e.printStackTrace();
+				}
+	        	serverInterfacer.interrupt();
+	        	
+	        	try {
+					candidatePicsReceiver.join();
+					serverInterfacer.join();
+					if (networkTrainerThread != null)
+						networkTrainerThread.join();
+				} catch (InterruptedException e) {
+					e.printStackTrace();
+				}
+	        	
+	            System.out.println("MuonTeacher: Orderly shutdown succesfull");
+	        }
+	    }, "Shutdown-thread"));
 	}
 	
 	private static void displayMainFrame() {
@@ -182,51 +193,25 @@ public class Main {
 				if (excNodesListModel.isEmpty() | inhNodesListModel.isEmpty()) { // TODO: use excNodes and inhNodes instead.
 					updateLogPanel("Select an input and output layer first.", Color.RED);
 				} else {
-					//updateLogPanel("Training started.", Color.BLACK);
-					//disablePanel(); // During the learning phase the user shouldn't change the network topology.
+					updateLogPanel("Training started", Color.BLACK);
+					disablePanel(); // During the learning phase the user shouldn't change the network topology.	
 					
-					boolean noErrorRaised = true;					
-					
-					if (true) {								
-						// This may take a while. The GUI will block but that's ok because we don't want the user to interfere anyway. 
-						networkTrainer.setSynapticWeights(); 
-						
-						/*
-						try {
-							setSynWeightsFuture.get(); // Wait for the setting of the weights process to complete. 
-						} catch (InterruptedException | ExecutionException e) {
-							e.printStackTrace();
-						} 
-						
-						Future<Boolean> startTrainingFuture = networkTrainerThreadsExecutor.submit(new NetworkTrainer.StartTraining());
-						try {
-							noErrorRaised = startTrainingFuture.get();
-						} catch (InterruptedException | ExecutionException e) {
-							e.printStackTrace();
-						} 
-						
-						
-						networkTrainerThreadsExecutor.shutdown();
-						try {
-							boolean isExecutorShutdown = networkTrainerThreadsExecutor.awaitTermination(1, TimeUnit.SECONDS);
-							if (!isExecutorShutdown) {
-								System.out.println("ERROR: failed to shutdown network trainer executor");
-								updateLogPanel("Failed to shutdown executor", Color.RED);
-								noErrorRaised = false;
+					networkTrainerThread = new Thread() {
+						@Override
+						public void run () {
+							super.run();
+							boolean operationSuccessful = true; 
+							operationSuccessful &= networkTrainer.setSynapticWeights(); 
+							
+							if (!operationSuccessful) {
+								enablePanel();
+							} else {								
+								enablePanel();
+								updateLogPanel("Training completed", Color.BLACK);
 							}
-						} catch (InterruptedException e) {
-							e.printStackTrace();
 						}
-						*/
-					} 		
-					
-					updateLogPanel("Training completed.", Color.BLACK);
-										
-					if (!noErrorRaised)
-						resetNetwork();	
-					else {
-						enablePanel();
-					}
+					};
+					networkTrainerThread.start();						
 				}
 			}
 		});
@@ -499,6 +484,9 @@ public class Main {
 		removeNodeFromInh.setEnabled(false);
 		trainNetwork.setEnabled(false);
 		analyzeSamples.setEnabled(false);
+		
+		mainPanel.repaint();
+		mainPanel.revalidate();
 	}
 	
 	/**
@@ -512,6 +500,9 @@ public class Main {
 		removeNodeFromInh.setEnabled(true);
 		trainNetwork.setEnabled(true);
 		analyzeSamples.setEnabled(true);
+		
+		mainPanel.repaint();
+		mainPanel.revalidate();
 	}
 	
 	/**

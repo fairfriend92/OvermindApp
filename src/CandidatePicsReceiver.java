@@ -12,8 +12,9 @@ import java.util.concurrent.Executors;
 public class CandidatePicsReceiver extends Thread {
 	
 	static String serverIP = null;
-	private static boolean shutdown = false;
+	boolean shutdown = false;
 	static ExecutorService cachedThreadPoolExecutor = Executors.newCachedThreadPool(); 
+	ServerSocket serverSocket = null;
 	
 	@Override
 	public void run() {
@@ -29,8 +30,7 @@ public class CandidatePicsReceiver extends Thread {
         }        
         assert serverIP != null;        
        
-        /* Build the TCP socket */
-        ServerSocket serverSocket = null;		
+        /* Build the TCP socket */       		
 		try {
 			serverSocket = new ServerSocket(Constants.MUON_DETECTOR_SERVER_PORT);
 		} catch (IOException e) {
@@ -40,19 +40,26 @@ public class CandidatePicsReceiver extends Thread {
 	
 		ObjectInputStream socketInputStream = null;
 		
+		Socket clientSocket = null;
+		
 		while(!shutdown) {			
 			/* Accept connections from the socket and read the Candidate objects from them */
-			com.example.muondetector.Candidate candidate = null;
 			try {				
-				Socket clientSocket = serverSocket.accept(); // Accept connection. Blocking operation.
+				clientSocket = serverSocket.accept(); // Accept connection. Blocking operation.
 				clientSocket.setTrafficClass(Constants.IPTOS_RELIABILITY);
 				socketInputStream = new ObjectInputStream(clientSocket.getInputStream()); // Establish a stream from which the object can be read
 				cachedThreadPoolExecutor.execute(new TerminalListener(socketInputStream)); // Create a thread which listens for incoming pics from the connected terminal
 			} catch (IOException e) {
-	        	e.printStackTrace();
-			}		
-					
+	        	System.out.println("MuonTeacher: serverSocket closed");
+			}				
 		}		
+		
+		try {
+			if (clientSocket != null)
+				clientSocket.close();
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
 	}
 	
 	/**

@@ -3,7 +3,7 @@ public class ServerInterfacer extends Thread {
 	
 	private final int MAX_REMOVED_NODES = 8; // Max number of removed nodes that this application can handle at any time.
 	
-	private static boolean shutdown = false;
+	boolean shutdown = false;
 	
 	@Override
 	public void run() {
@@ -17,7 +17,8 @@ public class ServerInterfacer extends Thread {
 			try {
 				removedNodeObject = thisApplication.removedNodes.take();
 			} catch (InterruptedException e) {
-				System.out.println(e);
+				System.out.println("MuonTeacher: serverInterfacer interrupted");
+				break;
 			}
 			assert removedNodeObject != null;			
 			
