@@ -27,6 +27,10 @@ public class NetworkTrainer {
 	// NetworkTrainer runs
 	private final static Object lock = new Object();
 	
+	// Constants local to this class.
+	private final static byte UPDATE_WEIGHT = (byte)1;
+	private final static byte DONT_UPDATE_WEIGHT = (byte)0;
+	
 	/**
 	 * Simple class that stores two buffers, one for the presynaptic spike trains and 
 	 * of for the postsynaptic ones. 
@@ -296,7 +300,8 @@ public class NetworkTrainer {
 	
 	/**
 	 * After the topology of the network has been validated, this method set
-	 * the synaptic weights of each node to their default values. 
+	 * the synaptic weights of each node to their default values. Additionally, it determines 
+	 * whether the node should be updated regularly by the client using the learning algorithm. 
 	 */
 	
 	boolean setSynapticWeights() {	
@@ -311,49 +316,45 @@ public class NetworkTrainer {
 		
 		for (Node inhNode : Main.inhNodes) {
 			// Number of synapse per neuron that are effectively used.
-			int activeSynPerNeuron = inhNode.originalNumOfSynapses - inhNode.terminal.numOfSynapses;
+			int activeSynPerNeuron = inhNode.originalNumOfSynapses - inhNode.terminal.numOfSynapses;			
 			
-			// Array intended to store all the weights, including null weights for the synapses that are not active.
-			float[] weights = new float[inhNode.originalNumOfSynapses * inhNode.terminal.numOfNeurons];
+			// Array intended to store only the weights of the synapses that have been changed.
+			byte[] sparseWeights;
+			int sparseArrayLength = activeSynPerNeuron * inhNode.terminal.numOfNeurons;
+			sparseWeights = new byte[sparseArrayLength];
 			
-			// Array storing the indexes of only the weights that are different from zero.
-			int[] weightsIndexes = new int[activeSynPerNeuron * inhNode.terminal.numOfNeurons];				
+			// Float version of the previous array to be send to the hash map storing on the server the weights of the nodes.
+			float[] sparseWeightsFloat = new float[sparseArrayLength];
+			
+			// Array storing the flags which indicate whether the weight corresponding to the synapse should be updated during the training.
+			byte[] updateWeightsFlags = new byte[sparseArrayLength];				
 			
 			// Iterate over all the neurons of the present terminal.
 			for (int neuronIndex = 0; neuronIndex < inhNode.terminal.numOfNeurons; neuronIndex++) {
 				// Iterate over all the presynaptic connections of the terminal.
 				for (com.example.overmind.Terminal presynapticTerminal : inhNode.terminal.presynapticTerminals) {
-					// Iterate over all the synapses coming from any given presynaptic connections.
+					// Iterate over all the synapses coming from any given presynaptic connection.
 					for (int weightIndex = 0; weightIndex < presynapticTerminal.numOfNeurons; weightIndex++) {
-						weights[neuronIndex * inhNode.originalNumOfSynapses + weightIndex] = randomNumber.nextFloat();
-						weightsIndexes[neuronIndex * activeSynPerNeuron + weightIndex] = neuronIndex * inhNode.originalNumOfSynapses + weightIndex;
+						sparseWeightsFloat[neuronIndex * activeSynPerNeuron + weightIndex] = randomNumber.nextFloat();
+						sparseWeights[neuronIndex * activeSynPerNeuron + weightIndex] = 
+								(byte)(sparseWeightsFloat[neuronIndex * activeSynPerNeuron + weightIndex] / Constants.MIN_WEIGHT);
+						
+						/*
+						 * The weights of the inhibitory neurons should not updated, not matter whether the synapse is excitatory
+						 * or inhibitory. 
+						 */
+						
+						
+	        			updateWeightsFlags[neuronIndex * activeSynPerNeuron + weightIndex] = DONT_UPDATE_WEIGHT;
 					}
 				}
 			}			
 			
-			VirtualLayerManager.weightsTable.put(inhNode.virtualID, weights);
-			
-			// Compute whether it is more convenient to send to the terminal a sparse array or a full array. 
-			if (activeSynPerNeuron * inhNode.terminal.numOfNeurons * Constants.SIZE_OF_FLOAT + weightsIndexes.length * Constants.SIZE_OF_INT < 
-					weights.length * Constants.SIZE_OF_BYTE) {
-				// Create a sparse array containing only the weights that have been changed. 
-				byte[] sparseWeightsArray = new byte[activeSynPerNeuron * inhNode.terminal.numOfNeurons];
-				for (int weightIndex = 0; weightIndex < inhNode.terminal.numOfNeurons * activeSynPerNeuron; weightIndex++) {
-					sparseWeightsArray[weightIndex] = (byte)(weights[weightsIndexes[weightIndex]] / Constants.MIN_WEIGHT);
-				}
+			VirtualLayerManager.weightsTable.put(inhNode.virtualID, sparseWeightsFloat);			
 				
-				inhNode.terminal.newWeights = sparseWeightsArray;
-				inhNode.terminal.newWeightsIndexes = weightsIndexes; 
-			} else {
-				// Convert to byte all the weights stored as float. 
-				byte[] weightsInByte = new byte[weights.length];
-				for (int weightIndex = 0; weightIndex < weights.length; weightIndex++) {
-					weightsInByte[weightIndex] = (byte)(weights[weightIndex] / Constants.MIN_WEIGHT);
-				}
-				
-				inhNode.terminal.newWeights = weightsInByte;
-				inhNode.terminal.newWeightsIndexes = new int[] {0}; 
-			}
+			inhNode.terminal.newWeights = sparseWeights;
+			inhNode.terminal.newWeightsIndexes = new int[] {0};
+			inhNode.terminal.updateWeightsFlags = updateWeightsFlags;
 											
 			VirtualLayerManager.unsyncNodes.add(inhNode);	
 		}	
@@ -361,43 +362,38 @@ public class NetworkTrainer {
 		// Algorithm is almost identical for excitatory nodes.
 		for (Node excNode : Main.excNodes) {
 			int activeSynPerNeuron = excNode.originalNumOfSynapses - excNode.terminal.numOfSynapses;
-			float[] weights = new float[excNode.originalNumOfSynapses * excNode.terminal.numOfNeurons];
-			int[] weightsIndexes = new int[activeSynPerNeuron * excNode.terminal.numOfNeurons];				
+			byte[] sparseWeights;
+			int sparseArrayLength = activeSynPerNeuron * excNode.terminal.numOfNeurons;
+			sparseWeights = new byte[sparseArrayLength];
+			float[] sparseWeightsFloat = new float[sparseArrayLength];
+			byte[] updateWeightsFlags = new byte[sparseArrayLength];				
 			
 			for (int neuronIndex = 0; neuronIndex < excNode.terminal.numOfNeurons; neuronIndex++) {
 				for (com.example.overmind.Terminal presynapticTerminal : excNode.terminal.presynapticTerminals) {
-					// The only difference is here: The presynaptic connection can either be excitatory or inhibitory,
-					// therefore the sign of the weights must be checked first. 
+					
+					/*
+					 * The only differences are here: The presynaptic connection can either be excitatory or inhibitory,
+					 * therefore the sign of the weights must be checked first. Additionaly, if it is inhibitory, the weight should
+					 * not be update during the training session, and therefore the relative flag should be unset. 
+					 */
+					
+					
 					int weightSign = Main.inhNodes.contains(presynapticTerminal) ? - 1 : 1;
 					for (int weightIndex = 0; weightIndex < presynapticTerminal.numOfNeurons; weightIndex++) {
-						weights[neuronIndex * excNode.originalNumOfSynapses + weightIndex] = weightSign * randomNumber.nextFloat();
-						weightsIndexes[neuronIndex * activeSynPerNeuron + weightIndex] = neuronIndex * excNode.originalNumOfSynapses + weightIndex;
+						sparseWeightsFloat[neuronIndex * activeSynPerNeuron + weightIndex] = weightSign * randomNumber.nextFloat();
+						sparseWeights[neuronIndex * activeSynPerNeuron + weightIndex] = 
+								(byte)(sparseWeightsFloat[neuronIndex * activeSynPerNeuron + weightIndex] / Constants.MIN_WEIGHT);
+	        			updateWeightsFlags[neuronIndex * activeSynPerNeuron + weightIndex] = Main.inhNodes.contains(presynapticTerminal) ? 
+	        					DONT_UPDATE_WEIGHT : UPDATE_WEIGHT;
 					}
 				}
 			}			
 			
-			VirtualLayerManager.weightsTable.put(excNode.virtualID, weights);
-
-			if (activeSynPerNeuron * excNode.terminal.numOfNeurons * Constants.SIZE_OF_FLOAT + weightsIndexes.length * Constants.SIZE_OF_INT < 
-					weights.length * Constants.SIZE_OF_BYTE) {
-				byte[] sparseWeightsArray = new byte[activeSynPerNeuron * excNode.terminal.numOfNeurons];
-				for (int weightIndex = 0; weightIndex < excNode.terminal.numOfNeurons * activeSynPerNeuron; weightIndex++) {
-					sparseWeightsArray[weightIndex] = (byte)(weights[weightsIndexes[weightIndex]] / Constants.MIN_WEIGHT);
-				}
-				
-				System.out.println("sparse");
-				
-				excNode.terminal.newWeights = sparseWeightsArray;
-				excNode.terminal.newWeightsIndexes = weightsIndexes; 
-			} else {
-				byte[] weightsInByte = new byte[weights.length];
-				for (int weightIndex = 0; weightIndex < weights.length; weightIndex++) {
-					weightsInByte[weightIndex] = (byte)(weights[weightIndex] / Constants.MIN_WEIGHT);
-				}
-				
-				excNode.terminal.newWeights = weightsInByte;
-				excNode.terminal.newWeightsIndexes = new int[] {0}; 
-			}				
+			VirtualLayerManager.weightsTable.put(excNode.virtualID, sparseWeightsFloat);
+			
+			excNode.terminal.newWeights = sparseWeights;
+			excNode.terminal.newWeightsIndexes = new int[] {0};
+			excNode.terminal.updateWeightsFlags = updateWeightsFlags;
 							
 			VirtualLayerManager.unsyncNodes.add(excNode);			
 		} 
