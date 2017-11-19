@@ -190,7 +190,7 @@ public class Main {
 		trainNetwork.addActionListener(new ActionListener() { 
 			@Override
 			public void actionPerformed(ActionEvent arg0) {
-				if (excNodesListModel.isEmpty() | inhNodesListModel.isEmpty()) { // TODO: use excNodes and inhNodes instead.
+				if (excNodes.isEmpty() | inhNodes.isEmpty()) { 
 					updateLogPanel("Select an input and output layer first.", Color.RED);
 				} else {
 					updateLogPanel("Training started", Color.BLACK);
@@ -201,7 +201,12 @@ public class Main {
 						public void run () {
 							super.run();
 							boolean operationSuccessful = true; 
-							operationSuccessful &= networkTrainer.setSynapticWeights(); 
+							
+							operationSuccessful &= networkTrainer.checkTopology();							
+							if (operationSuccessful)
+								operationSuccessful &= networkTrainer.setSynapticWeights(); 
+							if (operationSuccessful)
+								operationSuccessful &= networkTrainer.startTraining();
 							
 							if (!operationSuccessful) {
 								enablePanel();

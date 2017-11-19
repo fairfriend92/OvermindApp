@@ -112,13 +112,6 @@ public class NetworkStimulator {
 				
 				byte[] spikeInput = SpikeInputCreator.createFromLuminance(input.grayscalePixels);
 				
-				// Add the generated spikes array to the presynaptic spike trains buffer of the input layer. 
-				NetworkTrainer.SpikeTrainsBuffers spikeTrainsBuffers = NetworkTrainer.spikeTrainsBuffersMap.get(inputLayer.physicalID);
-				spikeTrainsBuffers.presynapticSpikeTrains.add(spikeInput);
-				
-				// Save the number of pixels that make up the input.
-				spikeTrainsBuffers.numOfSpikeTrains = (short)input.grayscalePixels.length;
-				
 				try {
 					DatagramPacket spikeInputPacket = new DatagramPacket(spikeInput, spikeInput.length, inetAddress, natPort);
 					outputSocket.send(spikeInputPacket);
