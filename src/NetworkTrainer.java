@@ -19,8 +19,8 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
 public class NetworkTrainer {	
-	// Hash map used to store the buffers holding the spike trains of the nodes. 
-	private static ConcurrentHashMap<Integer, ArrayList<byte[]>> spikeTrainsBuffersMap;
+	// Hash map used to store the mean firing rates of the neurons of each node. 
+	private static ConcurrentHashMap<Integer, float[]> meanFiringRatesMap;
 	
 	// Object used to synchronize the worker thread of SpikesReceiver with thread on which 
 	// NetworkTrainer runs
@@ -33,7 +33,7 @@ public class NetworkTrainer {
 	
 	/**
 	 * Class that waits for UDP packets to arrive at a specific port and
-	 * stores their contents into the spike trains buffers of the nodes they come from.  
+	 * update the firing rates of the neurons that produced the spikes.  
 	 */
 	
 	private static class SpikesReceiver extends Thread {
@@ -42,10 +42,9 @@ public class NetworkTrainer {
 		boolean shutdown = false;
 		
 		/**
-		 * Inner class that implements Runnable and takes care of adding the latest
-		 * spikes array to the spike trains buffer of the sender node. If the buffer is
-		 * full, the worker thread computes the firing rate based on the stored 
-		 * spike trains. 
+		 * Inner class that implements Runnable and takes care of updating the 
+		 * firing rates of the neurons that belong to the node that has sent 
+		 * the spikesPacket.  
 		 */
 		
 		private class WorkerThread implements Runnable {
@@ -59,40 +58,25 @@ public class NetworkTrainer {
 			
 			@Override
 			public void run() {
-        		if (spikesPacket != null) {
+        		if (spikesPacket != null) {     			
+        			int ipHashCode = spikesPacket.getAddress().hashCode();
+        			float[] meanFiringRates = meanFiringRatesMap.get(ipHashCode);
+        			int numOfNeurons = VirtualLayerManager.nodesTable.get(ipHashCode).terminal.numOfNeurons; 
         			
-    				/* Add the spikes array to the spike trains of the node which sent the packet. */
+        			// Iterating over the the neurons that produced the spike trains.
+        			for (int index = 0; index < numOfNeurons; index++) { 
+        				int byteIndex = index / 8;
+        				
+        				// If the current neuron had emitted a spike, increase the firing rate using a simple moving average algorithm. 
+        				meanFiringRates[index] = ((spikesBuffer[byteIndex] >> (index - byteIndex * 8)) & 1) == 1 ? 
+        						meanFiringRates[index] + Constants.MEAN_RATE_INCREMENT * (1 - meanFiringRates[index]) : 
+        							meanFiringRates[index] - Constants.MEAN_RATE_INCREMENT * meanFiringRates[index];;
+        			}
         			
-					int ipHashCode = spikesPacket.getAddress().hashCode();
-        			ArrayList<byte[]> postsynapticSpikeTrains = spikeTrainsBuffersMap.get(ipHashCode); // Get a reference to the object the buffer.
-	        		postsynapticSpikeTrains.add(spikesBuffer); // Add the latest spike array to the postsynaptic spike trains buffer. 
-	        		
-	        		System.out.println("" + postsynapticSpikeTrains.size());
-	        		
-	        		/* If the buffer is full it's time to compute the firing rate. */
-	        			        		
-	        		if (postsynapticSpikeTrains.size() == Constants.STIMULATION_LENGTH / Constants.DELTA_TIME) {
-	        			System.out.println("test");
-	        			
-						Node node = VirtualLayerManager.nodesTable.get(ipHashCode); // Get a reference to the node which  sent the packet.
-	        			
-	        			float[] postsynapticFiringRates =
-	        					SpikeInputCreator.computeFiringRate(postsynapticSpikeTrains, node.terminal.numOfNeurons);	        			
-	        	        			
-	        			/* Unlock the thread which sent the stimulus if the all the firing rates have been computed */
-	        			
-	        			numOfFullBuffers++;
-	        			if (numOfFullBuffers == Main.excNodes.size()) {
-	        				numOfFullBuffers = 0;
-	        				synchronized(lock) {
-	        					lock.notify();
-	        				}
-	        			}
-	        		}
+        			// Put back the firing rates vector now that they have been updated.
+        			meanFiringRatesMap.put(ipHashCode, meanFiringRates);
         		}
-        		/* [End of if (spikesPacket != null)] */
 			}
-    		/* [End of run()] */
 		}
 		
 		@Override
@@ -126,8 +110,7 @@ public class NetworkTrainer {
         		
         		// Create a worker thread to add the the latest spikes to the sender node buffer
         		// and eventually compute the firing rate. 
-        		workerThreadsExecutor.execute(new WorkerThread(spikesPacket, spikesBuffer));        		
-        		
+        		workerThreadsExecutor.execute(new WorkerThread(spikesPacket, spikesBuffer));                		
 	    	}
 	    	
 	    	/* Shutdown executor. */
@@ -320,7 +303,7 @@ public class NetworkTrainer {
 					 */
 					
 					
-					int weightSign = Main.inhNodes.contains(presynapticTerminal) ? - 1 : 1;
+					float weightSign = Main.inhNodes.contains(presynapticTerminal) ? -1.0f : 1.0f;
 					for (int weightIndex = 0; weightIndex < presynapticTerminal.numOfNeurons; weightIndex++) {
 						sparseWeightsFloat[neuronIndex * activeSynPerNeuron + weightIndex] = weightSign * randomNumber.nextFloat();
 						sparseWeights[neuronIndex * activeSynPerNeuron + weightIndex] = 
@@ -411,24 +394,31 @@ public class NetworkTrainer {
 		 * Get all the grayscale candidates files used for training. 
 		 */
 		
+		// TODO: retrieved filed should be saved in a hash map and then deleted. The hash map should be save on storage at the end. 		
 		String path = new File("").getAbsolutePath();
 		path = path.concat("/resources/pics/training_set");
 		File trainingSetDir = new File(path);
-		File[] trainingSetFiles = trainingSetDir.listFiles();
+		ArrayList<File> trainingSetFiles = new ArrayList<>(Arrays.asList(trainingSetDir.listFiles()));
 		
-		if (trainingSetFiles.length == 0 | trainingSetFiles == null) {
+		// Delete unwanted files that may have been included. 
+		for (File file : trainingSetFiles) {
+			if (file.getName().equals(".gitignore"))
+				trainingSetFiles.remove(file);
+		}
+				
+		if (trainingSetFiles.size() == 0 | trainingSetFiles == null) {
 			Main.updateLogPanel("No training set found", Color.RED);
 			return false;
 		}
 		
 		ObjectInputStream objectInputStream = null; // To read the Candidate object from the file stream.
         FileInputStream fileInputStream = null; // To read from the file.
-        GrayscaleCandidate[] grayscaleCandidates = new GrayscaleCandidate[trainingSetFiles.length];        
+        GrayscaleCandidate[] grayscaleCandidates = new GrayscaleCandidate[trainingSetFiles.size()];        
         
         // Convert the files into objects and save them. 
-        for (int i = 0; i < trainingSetFiles.length; i++) {
+        for (int i = 0; i < trainingSetFiles.size(); i++) {
         	try {
-        		fileInputStream = new FileInputStream(trainingSetFiles[i]);
+        		fileInputStream = new FileInputStream(trainingSetFiles.get(i));
         		objectInputStream = new ObjectInputStream(fileInputStream);
         		grayscaleCandidates[i] = (GrayscaleCandidate) objectInputStream.readObject();
         	} catch (ClassNotFoundException | IOException e) {
@@ -459,6 +449,7 @@ public class NetworkTrainer {
         	Arrays.fill(inputCandidates, candidate); // In this implementation the inputs of the nodes are all the same.         	
         	
         	// Stimulate the input layers with the candidate grayscale map.
+        	// TODO: Handle disconnection of node during stimulation.
         	boolean noErrorRaised = 
         			networkStimulator.stimulateWithLuminanceMap(Constants.STIMULATION_LENGTH, Constants.DELTA_TIME, inputLayers, inputCandidates);  
         	if (!noErrorRaised) {
@@ -472,20 +463,7 @@ public class NetworkTrainer {
        	    // Wait before sending the new stimulus according to the PAUSE_LENGTH constant. 
         	while ((System.nanoTime() - pauseStartTime) / Constants.NANO_TO_MILLS_FACTOR < 
         			Constants.PAUSE_LENGTH) {    
-        	}      
-        
-        	/*
-           	synchronized(lock) {
-        		try {
-					lock.wait();
-				} catch (InterruptedException e) {
-					e.printStackTrace();
-				}
-        	}
-        	        	
-        	System.out.println("Pause length: " + (System.nanoTime() - pauseStartTime) / Constants.NANO_TO_MILLS_FACTOR + " ms");    	  
-        	*/      	 	
-        	
+        	}              
         }
     	
     	/* 

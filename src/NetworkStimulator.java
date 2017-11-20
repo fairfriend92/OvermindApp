@@ -37,16 +37,11 @@ public class NetworkStimulator {
 		ArrayList<Future<?>> inputSenderFutures = new ArrayList<Future<?>>(inputs.length);
 		
 		for (int index = 0; index < inputs.length; index++) {
-			// The input should be sent to a node only if this one is not being stimulated already.
-			if (inputLayers[index].isBeingStimulated()) {
-				System.out.println("Input layer with IP: " + inputLayers[index].terminal.ip + " is already being stimulated.");
-			} else {
-				// For each inputLayer start a thread to stimulate it.
-				Future<?> inputSenderFuture = 
-						inputSenderService.submit(new InputSender(stimulationLength, deltaTime, inputLayers[index], inputs[index]));
-								
-				inputSenderFutures.add(inputSenderFuture);
-			}
+			// For each inputLayer start a thread to stimulate it.
+			Future<?> inputSenderFuture = 
+					inputSenderService.submit(new InputSender(stimulationLength, deltaTime, inputLayers[index], inputs[index]));
+							
+			inputSenderFutures.add(inputSenderFuture);
 		}
 		
 		// Wait for all the InputSender threads to finish by retrieving their Future objects.		
@@ -58,7 +53,7 @@ public class NetworkStimulator {
 			return false;
 		}
 		
-		System.out.println("Stimulation length: " + (System.nanoTime() - stimulationStartTime) / Constants.NANO_TO_MILLS_FACTOR + " ms.");
+		System.out.println("Stimulation length: " + (System.nanoTime() - stimulationStartTime) / Constants.NANO_TO_MILLS_FACTOR + " ms");
 		
 		return true;
 	}
@@ -83,9 +78,7 @@ public class NetworkStimulator {
 		}
 		
 		@Override
-		public void run() {			
-			inputLayer.isExternallyStimulated = true;
-			
+		public void run() {						
 			// Socket used to send the input to the node. 
 			DatagramSocket outputSocket = null;
 	        try {
@@ -124,7 +117,6 @@ public class NetworkStimulator {
 				}
 			}
 			
-			inputLayer.isExternallyStimulated = false;		
 			outputSocket.close();
 		}
 	}

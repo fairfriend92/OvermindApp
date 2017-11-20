@@ -209,6 +209,7 @@ public class Main {
 								operationSuccessful &= networkTrainer.startTraining();
 							
 							if (!operationSuccessful) {
+								resetNetwork();
 								enablePanel();
 							} else {								
 								enablePanel();
@@ -239,6 +240,7 @@ public class Main {
 					selectedNode.terminalFrame.noneRadioButton.doClick();
 					selectedNode.terminalFrame.randomSpikesRadioButton.setEnabled(false);
 					selectedNode.terminalFrame.refreshSignalRadioButton.setEnabled(false);
+					selectedNode.isExternallyStimulated = true;
 					
 					if (excNodesListModel.contains("No excitatory node")) // The default message should be cleared if a node is added to the list.
 						excNodesListModel.clear();
@@ -297,6 +299,7 @@ public class Main {
 					selectedNode.terminalFrame.noneRadioButton.doClick();
 					selectedNode.terminalFrame.randomSpikesRadioButton.setEnabled(false);
 					selectedNode.terminalFrame.refreshSignalRadioButton.setEnabled(false);
+					selectedNode.isExternallyStimulated = true;
 					
 					if (inhNodesListModel.contains("No inhibitory node"))
 						inhNodesListModel.clear();
