@@ -232,7 +232,7 @@ public class NetworkTrainer {
 	boolean setSynapticWeights() {	
 		final boolean STREAM_INTERRUPTED = false;
 		final boolean OPERATION_SUCCESSFUL = true;
-		
+
 		Random randomNumber = new Random();				
 		
 		/*
@@ -241,7 +241,7 @@ public class NetworkTrainer {
 		
 		for (Node inhNode : Main.inhNodes) {
 			// Number of synapse per neuron that are effectively used.
-			int activeSynPerNeuron = inhNode.originalNumOfSynapses - inhNode.terminal.numOfSynapses;			
+			int activeSynPerNeuron = inhNode.originalNumOfSynapses - inhNode.terminal.numOfDendrites;			
 			
 			// Array intended to store only the weights of the synapses that have been changed.
 			byte[] sparseWeights;
@@ -256,12 +256,14 @@ public class NetworkTrainer {
 			
 			// Iterate over all the neurons of the present terminal.
 			for (int neuronIndex = 0; neuronIndex < inhNode.terminal.numOfNeurons; neuronIndex++) {
+				int weightOffset = 0; // Keep track of how many weights have been updated for a given connection.
+				
 				// Iterate over all the presynaptic connections of the terminal.
 				for (com.example.overmind.Terminal presynapticTerminal : inhNode.terminal.presynapticTerminals) {
 					// Iterate over all the synapses coming from any given presynaptic connection.
 					for (int weightIndex = 0; weightIndex < presynapticTerminal.numOfNeurons; weightIndex++) {
-						sparseWeightsFloat[neuronIndex * activeSynPerNeuron + weightIndex] = randomNumber.nextFloat();
-						sparseWeights[neuronIndex * activeSynPerNeuron + weightIndex] = 
+						sparseWeightsFloat[neuronIndex * activeSynPerNeuron + weightIndex + weightOffset] = randomNumber.nextFloat();
+						sparseWeights[neuronIndex * activeSynPerNeuron + weightIndex + weightOffset] = 
 								(byte)(sparseWeightsFloat[neuronIndex * activeSynPerNeuron + weightIndex] / Constants.MIN_WEIGHT);
 						
 						/*
@@ -270,8 +272,10 @@ public class NetworkTrainer {
 						 */
 						
 						
-	        			updateWeightsFlags[neuronIndex * activeSynPerNeuron + weightIndex] = DONT_UPDATE_WEIGHT;
+	        			updateWeightsFlags[neuronIndex * activeSynPerNeuron + weightIndex + weightOffset] = DONT_UPDATE_WEIGHT;	        			
 					}
+					
+        			weightOffset += presynapticTerminal.numOfNeurons;
 				}
 			}			
 			
@@ -286,7 +290,25 @@ public class NetworkTrainer {
 		
 		// Algorithm is almost identical for excitatory nodes.
 		for (Node excNode : Main.excNodes) {
-			int activeSynPerNeuron = excNode.originalNumOfSynapses - excNode.terminal.numOfSynapses;
+			
+			/*
+			 * Add the input sender to the presynaptic connections of the terminals
+			 * underlying the excitatory nodes.
+			 */			
+			
+			// Create a Terminal object holding all the info regarding this server,
+			// which is the input sender. 
+			com.example.overmind.Terminal thisApp = new com.example.overmind.Terminal();    
+			thisApp.numOfNeurons = (short) Constants.MAX_PIC_PIXELS;
+			thisApp.numOfSynapses = excNode.terminal.numOfNeurons;
+			thisApp.numOfDendrites = 0;
+			thisApp.ip = CandidatePicsReceiver.serverIP;
+			thisApp.natPort = Constants.APP_UDP_PORT;
+			
+			excNode.terminal.presynapticTerminals.add(0, thisApp);
+			excNode.terminal.numOfDendrites -= Constants.MAX_PIC_PIXELS;
+			
+			int activeSynPerNeuron = excNode.originalNumOfSynapses - excNode.terminal.numOfDendrites;
 			byte[] sparseWeights;
 			int sparseArrayLength = activeSynPerNeuron * excNode.terminal.numOfNeurons;
 			sparseWeights = new byte[sparseArrayLength];
@@ -294,23 +316,30 @@ public class NetworkTrainer {
 			byte[] updateWeightsFlags = new byte[sparseArrayLength];				
 			
 			for (int neuronIndex = 0; neuronIndex < excNode.terminal.numOfNeurons; neuronIndex++) {
+				int weightOffset = 0;
 				for (com.example.overmind.Terminal presynapticTerminal : excNode.terminal.presynapticTerminals) {
 					
 					/*
 					 * The only differences are here: The presynaptic connection can either be excitatory or inhibitory,
-					 * therefore the sign of the weights must be checked first. Additionaly, if it is inhibitory, the weight should
+					 * therefore the sign of the weights must be checked first. Additionally, if it is inhibitory, the weight should
 					 * not be update during the training session, and therefore the relative flag should be unset. 
 					 */
 					
-					
-					float weightSign = Main.inhNodes.contains(presynapticTerminal) ? -1.0f : 1.0f;
+					float weightSign = 1;
+					for (Node inhNode : Main.inhNodes) {
+						if (inhNode.equals(presynapticTerminal)) 
+							weightSign = -1;
+					}
+					System.out.println(weightSign + " " + neuronIndex + " " + presynapticTerminal.ip);
 					for (int weightIndex = 0; weightIndex < presynapticTerminal.numOfNeurons; weightIndex++) {
-						sparseWeightsFloat[neuronIndex * activeSynPerNeuron + weightIndex] = weightSign * randomNumber.nextFloat();
-						sparseWeights[neuronIndex * activeSynPerNeuron + weightIndex] = 
-								(byte)(sparseWeightsFloat[neuronIndex * activeSynPerNeuron + weightIndex] / Constants.MIN_WEIGHT);
-	        			updateWeightsFlags[neuronIndex * activeSynPerNeuron + weightIndex] = Main.inhNodes.contains(presynapticTerminal) ? 
+						sparseWeightsFloat[neuronIndex * activeSynPerNeuron + weightIndex + weightOffset] = weightSign * randomNumber.nextFloat();
+						sparseWeights[neuronIndex * activeSynPerNeuron + weightIndex + weightOffset] = 
+								(byte)(sparseWeightsFloat[neuronIndex * activeSynPerNeuron + weightIndex + weightOffset] / Constants.MIN_WEIGHT);
+	        			updateWeightsFlags[neuronIndex * activeSynPerNeuron + weightIndex + weightOffset] = Main.inhNodes.contains(presynapticTerminal) ? 
 	        					DONT_UPDATE_WEIGHT : UPDATE_WEIGHT;
 					}
+					
+					weightOffset += presynapticTerminal.numOfNeurons;
 				}
 			}			
 			
@@ -344,52 +373,10 @@ public class NetworkTrainer {
 	boolean startTraining()  {	
 		final boolean ERROR_OCCURRED = false;
 		final boolean STREAM_INTERRUPTED = false;
-		final boolean OPERATION_SUCCESSFUL = true;
-					
-		Main.updateLogPanel("Training started", Color.BLACK);
+		final boolean OPERATION_SUCCESSFUL = true;				
 		
-		NetworkStimulator networkStimulator = new NetworkStimulator();			
-		
-		/*
-		 * Add the input sender to the presynaptic connections of the terminals
-		 * underlying the excitatory nodes.
-		 */			
-		
-		com.example.overmind.Terminal thisApp = new com.example.overmind.Terminal();    			
-		for (Node excNode : Main.excNodes) {
-			// Create the buffer which will store the spike train produced by excNode. 
-			/*
-			ArrayList<byte[]> postsynapticSpikeTrains = new ArrayList<byte[]>(Constants.STIMULATION_LENGTH / Constants.DELTA_TIME);		
-			spikeTrainsBuffersMap = new ConcurrentHashMap<>(Main.excNodes.size());
-			spikeTrainsBuffersMap.put(excNode.physicalID, postsynapticSpikeTrains);
-			*/
-			
-			// Create a Terminal object holding all the info regarding this server,
-			// which is the input sender. 
-			thisApp.numOfNeurons = (short) Constants.MAX_PIC_PIXELS;
-			thisApp.numOfSynapses = 0;
-			thisApp.numOfDendrites = excNode.terminal.numOfNeurons;
-			thisApp.ip = CandidatePicsReceiver.serverIP;
-			thisApp.natPort = Constants.APP_UDP_PORT;
-			
-			excNode.terminal.presynapticTerminals.add(thisApp);
-			//excNode.terminal.postsynapticTerminals.add(thisApp);
-			excNode.terminal.numOfDendrites -= Constants.MAX_PIC_PIXELS;
-			// TODO: decrease the synapses by excNode.terminal.numOfNeurons? See VirtualLayerManager todo note. 
-			VirtualLayerManager.unsyncNodes.add(excNode);
-		}
-		
-		Future<Boolean> future = VirtualLayerManager.syncNodes();	
-		try {
-			Boolean syncSuccessful = future.get();
-			if (!syncSuccessful) {
-				Main.updateLogPanel("TCP stream interrupted", Color.RED);
-				return STREAM_INTERRUPTED;
-			}
-		} catch (InterruptedException | ExecutionException e) {
-			e.printStackTrace();
-		}
-		
+		NetworkStimulator networkStimulator = new NetworkStimulator();					
+				
 		/*
 		 * Get all the grayscale candidates files used for training. 
 		 */
@@ -436,12 +423,6 @@ public class NetworkTrainer {
         // Create an array of nodes from the collection. 
         Node[] inputLayers = new Node[Main.excNodes.size()];
     	Main.excNodes.toArray(inputLayers);    	
-    	
-    	// Start the thread that asynchronously store the incoming spike trains.
-    	/*
-    	SpikesReceiver spikesReceiver = new SpikesReceiver();
-    	spikesReceiver.start();
-    	*/
         
     	/* Repeat the training for all the candidates in the training set */
     	
@@ -470,20 +451,14 @@ public class NetworkTrainer {
     	 * Delete the input sender from the list of presynaptic connections.
     	 */
         
-    	/*
-        spikesReceiver.shutdown = true;  
-        try {
-			spikesReceiver.join();
-		} catch (InterruptedException e) {
-			e.printStackTrace();
-		}        
-        spikeTrainsBuffersMap.clear();
-        */
+
         for (Node excNode : Main.excNodes) {
         	Main.removeThisAppFromConnections(excNode.terminal);
         	VirtualLayerManager.unsyncNodes.add(excNode);
-        }	        
-        future = VirtualLayerManager.syncNodes();	
+        }	         
+        
+        Future<Boolean> future = VirtualLayerManager.syncNodes();	  
+        
 		try {
 			Boolean syncSuccessful = future.get();
 			if (!syncSuccessful) {

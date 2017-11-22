@@ -462,6 +462,8 @@ public class Main {
 	
 	static void removeThisAppFromConnections(com.example.overmind.Terminal terminal) {
 		Iterator<com.example.overmind.Terminal> iterator = terminal.presynapticTerminals.iterator();
+		// TODO: Update the weights in the weightsTable of VLM accordingly. 
+		
 		while (iterator.hasNext()) {
 			com.example.overmind.Terminal presynapticTerminal = (com.example.overmind.Terminal) iterator.next();
 			if (presynapticTerminal.natPort == Constants.APP_UDP_PORT & 
