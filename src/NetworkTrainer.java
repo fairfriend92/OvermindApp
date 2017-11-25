@@ -9,6 +9,7 @@ import java.net.SocketException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.Random;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
@@ -330,7 +331,6 @@ public class NetworkTrainer {
 						if (inhNode.equals(presynapticTerminal)) 
 							weightSign = -1;
 					}
-					System.out.println(weightSign + " " + neuronIndex + " " + presynapticTerminal.ip);
 					for (int weightIndex = 0; weightIndex < presynapticTerminal.numOfNeurons; weightIndex++) {
 						sparseWeightsFloat[neuronIndex * activeSynPerNeuron + weightIndex + weightOffset] = weightSign * randomNumber.nextFloat();
 						sparseWeights[neuronIndex * activeSynPerNeuron + weightIndex + weightOffset] = 
@@ -388,9 +388,11 @@ public class NetworkTrainer {
 		ArrayList<File> trainingSetFiles = new ArrayList<>(Arrays.asList(trainingSetDir.listFiles()));
 		
 		// Delete unwanted files that may have been included. 
-		for (File file : trainingSetFiles) {
+		Iterator<File> iterator = trainingSetFiles.iterator();
+		while (iterator.hasNext()) {
+			File file = iterator.next();
 			if (file.getName().equals(".gitignore"))
-				trainingSetFiles.remove(file);
+				iterator.remove();;
 		}
 				
 		if (trainingSetFiles.size() == 0 | trainingSetFiles == null) {
@@ -438,37 +440,14 @@ public class NetworkTrainer {
         		return ERROR_OCCURRED;
         	}        	
         	        	
-        	long pauseStartTime = System.nanoTime();        	
-
-        	
        	    // Wait before sending the new stimulus according to the PAUSE_LENGTH constant. 
-        	while ((System.nanoTime() - pauseStartTime) / Constants.NANO_TO_MILLS_FACTOR < 
-        			Constants.PAUSE_LENGTH) {    
-        	}              
+        	try {
+				Thread.sleep(Constants.PAUSE_LENGTH);
+			} catch (InterruptedException e) {
+				e.printStackTrace();
+			}     
         }
-    	
-    	/* 
-    	 * Delete the input sender from the list of presynaptic connections.
-    	 */
-        
-
-        for (Node excNode : Main.excNodes) {
-        	Main.removeThisAppFromConnections(excNode.terminal);
-        	VirtualLayerManager.unsyncNodes.add(excNode);
-        }	         
-        
-        Future<Boolean> future = VirtualLayerManager.syncNodes();	  
-        
-		try {
-			Boolean syncSuccessful = future.get();
-			if (!syncSuccessful) {
-				Main.updateLogPanel("TCP stream interrupted", Color.RED);
-				return STREAM_INTERRUPTED;
-			}
-		} catch (InterruptedException | ExecutionException e) {
-			e.printStackTrace();
-		}
-        
+           
 		return OPERATION_SUCCESSFUL;				
 	}
 	

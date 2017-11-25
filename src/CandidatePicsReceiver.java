@@ -134,6 +134,9 @@ public class CandidatePicsReceiver extends Thread {
 				case Constants.TRACK:
 					tagDirectoryPath = "/resources/pics/tagged/track";
 					break;
+				case Constants.SPOT:
+					tagDirectoryPath = "/resources/pics/tagged/spot";
+					break;
 			}
 			
 			// Get the directory where to save the pic 

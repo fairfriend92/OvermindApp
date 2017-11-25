@@ -3,11 +3,12 @@ public class Constants {
     /* Particle flags */
     static final int UNDETERMINED = 0;
     static final int TRACK = 1;
+    static final int SPOT = 3;
     
     /* Application constants */
-    static int STIMULATION_LENGTH = 200; // Length in ms of the period during which the inputs are presented to the network.
+    static int STIMULATION_LENGTH = 1000; // Length in ms of the period during which the inputs are presented to the network.
     static int DELTA_TIME = 10; 
-    static int PAUSE_LENGTH = 400; 
+    static int PAUSE_LENGTH = 2000; 
     static short MAX_PIC_PIXELS = 1024; // The maximum number of pixels a sample image can be made of.
     static float MEAN_RATE_INCREMENT = 0.1f; // Inverse of the number of samples need to compute the mean firing rate.
     

@@ -9,6 +9,8 @@ import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
 
 import javax.imageio.ImageIO;
 import javax.swing.BorderFactory;
@@ -265,9 +267,42 @@ public class Main {
 					updateLogPanel("No exc. nodes to remove.", Color.RED); 
 					
 				} else {
-					excNodes.get(selectionIndex).isExternallyStimulated = false;
-					excNodes.get(selectionIndex).terminalFrame.randomSpikesRadioButton.setEnabled(true);
-					excNodes.get(selectionIndex).terminalFrame.refreshSignalRadioButton.setEnabled(true);					
+					
+			    	/* 
+			    	 * Delete the input sender from the list of presynaptic connections.
+			    	 */			        
+			    	
+					// For each node check if it was connected to a socket opened by this app. If so, eliminate the connection and sync the node.
+			        for (Node excNode : Main.excNodes) {
+			        	boolean connectionFound = Main.removeThisAppFromConnections(excNode.terminal);
+			        	if (connectionFound)
+			        		VirtualLayerManager.unsyncNodes.add(excNode);
+			        }	         
+			        
+			        Boolean syncSuccessful = true; 
+			        
+			        // If for some node a connection to the app was found, sync the terminal info on the server with those on the physical device.
+			        if (VirtualLayerManager.unsyncNodes.size() != 0) {
+				        Future<Boolean> future = VirtualLayerManager.syncNodes();	  			        
+						try {
+							syncSuccessful = future.get();
+							// If the stream was interrupted remove the node from the server. 
+							if (!syncSuccessful) {
+								Main.updateLogPanel("TCP stream interrupted", Color.RED);
+								VirtualLayerManager.removeNode(excNodes.get(selectionIndex), true);
+							} 
+						} catch (InterruptedException | ExecutionException e) {
+							e.printStackTrace();
+						}
+			        }
+					
+			        // If the sync was successful or it didn't take place, restore the settings of node and the terminal frame. 
+			        if (syncSuccessful) {			        
+						excNodes.get(selectionIndex).isExternallyStimulated = false;
+						excNodes.get(selectionIndex).terminalFrame.randomSpikesRadioButton.setEnabled(true);
+						excNodes.get(selectionIndex).terminalFrame.refreshSignalRadioButton.setEnabled(true);
+			        }
+															
 					excNodes.remove(selectionIndex);
 					excNodesListModel.remove(selectionIndex);
 					
@@ -326,6 +361,7 @@ public class Main {
 				} else {
 					inhNodes.get(selectionIndex).terminalFrame.randomSpikesRadioButton.setEnabled(true);
 					inhNodes.get(selectionIndex).terminalFrame.refreshSignalRadioButton.setEnabled(true);
+					
 					inhNodes.remove(selectionIndex);
 					inhNodesListModel.remove(selectionIndex);
 					
@@ -397,6 +433,8 @@ public class Main {
         		tag = Constants.UNDETERMINED;
         	else if (fileName.contains("track"))
         		tag = Constants.TRACK;
+        	else if (fileName.contains("spot"))
+        		tag = Constants.SPOT;
         	else {
         		fileNameIsValid = false;
         		System.out.println("" + fileName + " is not a valid file name.");
@@ -424,11 +462,24 @@ public class Main {
 	
 	private static void resetNetwork() {		
 		for (Node excNode : excNodes) {
-			removeThisAppFromConnections(excNode.terminal);
+			boolean connectionFound = removeThisAppFromConnections(excNode.terminal);
+			if (connectionFound) {
+				VirtualLayerManager.unsyncNodes.add(excNode);
+				Future<Boolean> future = VirtualLayerManager.syncNodes();	  			        
+				try {
+					Boolean syncSuccessful = future.get();
+					if (!syncSuccessful) {
+						Main.updateLogPanel("TCP stream interrupted", Color.RED);
+						VirtualLayerManager.removeNode(excNode, true);
+					} 
+				} catch (InterruptedException | ExecutionException e) {
+					e.printStackTrace();
+				}
+			}
 			
 			excNode.terminalFrame.randomSpikesRadioButton.setEnabled(true);
 			excNode.terminalFrame.refreshSignalRadioButton.setEnabled(true);
-			excNode.isExternallyStimulated = false; // TODO: This field should be unnecessary. 
+			excNode.isExternallyStimulated = false; 
 			
 			if (!VirtualLayerManager.availableNodes.contains(excNode))
 				VirtualLayerManager.availableNodes.add(excNode);			
@@ -460,14 +511,16 @@ public class Main {
 	 * @param terminal
 	 */
 	
-	static void removeThisAppFromConnections(com.example.overmind.Terminal terminal) {
+	static boolean removeThisAppFromConnections(com.example.overmind.Terminal terminal) {
 		Iterator<com.example.overmind.Terminal> iterator = terminal.presynapticTerminals.iterator();
+		boolean connectionFound = false;
 		// TODO: Update the weights in the weightsTable of VLM accordingly. 
 		
 		while (iterator.hasNext()) {
 			com.example.overmind.Terminal presynapticTerminal = (com.example.overmind.Terminal) iterator.next();
 			if (presynapticTerminal.natPort == Constants.APP_UDP_PORT & 
 					presynapticTerminal.ip.equals(terminal.serverIP)) {
+				connectionFound = true;
 				iterator.remove();
 				terminal.numOfDendrites += Constants.MAX_PIC_PIXELS;
 			}
@@ -478,9 +531,12 @@ public class Main {
 			com.example.overmind.Terminal postsynapticTerminal = (com.example.overmind.Terminal) iterator.next();
 			if (postsynapticTerminal.natPort == Constants.APP_UDP_PORT &
 					postsynapticTerminal.ip.equals(terminal.serverIP)) {
+				connectionFound = true;
 				iterator.remove();
 			}
 		}			
+		
+		return connectionFound;
 	}
 	
 	/**
