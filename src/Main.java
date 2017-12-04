@@ -61,6 +61,11 @@ public class Main {
 	/* Threading objects */
 	
 	private static Thread networkTrainerThread;
+	private static Thread analyzerThread;
+	
+	/* Other objects */
+	
+	private static boolean networkWasTrained = false;
 
 	public static void main(String[] args) {
 		MainFrame.main(args); // Start the Overmind server. 
@@ -79,19 +84,22 @@ public class Main {
 	        public void run() {
 	        	candidatePicsReceiver.shutdown = true;
 	        	serverInterfacer.shutdown = true;
+	        	networkTrainer.shutdown = true;
 	        	
 	        	try {
 					candidatePicsReceiver.serverSocket.close();
 				} catch (IOException e) {
 					e.printStackTrace();
 				}
-	        	serverInterfacer.interrupt();
-	        	
+	        	serverInterfacer.interrupt();        	
+        	
 	        	try {
 					candidatePicsReceiver.join();
 					serverInterfacer.join();
 					if (networkTrainerThread != null)
 						networkTrainerThread.join();
+					if (analyzerThread != null)
+						analyzerThread.join();
 				} catch (InterruptedException e) {
 					e.printStackTrace();
 				}
@@ -193,9 +201,8 @@ public class Main {
 			@Override
 			public void actionPerformed(ActionEvent arg0) {
 				if (excNodes.isEmpty() | inhNodes.isEmpty()) { 
-					updateLogPanel("Select an input and output layer first.", Color.RED);
+					updateLogPanel("Select an input and output layer first", Color.RED);
 				} else {
-					updateLogPanel("Training started", Color.BLACK);
 					disablePanel(); // During the learning phase the user shouldn't change the network topology.	
 					
 					networkTrainerThread = new Thread() {
@@ -208,13 +215,14 @@ public class Main {
 							if (operationSuccessful)
 								operationSuccessful &= networkTrainer.setSynapticWeights(); 
 							if (operationSuccessful)
-								operationSuccessful &= networkTrainer.startTraining();
+								operationSuccessful &= networkTrainer.classifyInput(true);
 							
 							if (!operationSuccessful) {
 								resetNetwork();
 								enablePanel();
 							} else {								
 								enablePanel();
+								networkWasTrained = true;
 								updateLogPanel("Training completed", Color.BLACK);
 							}
 						}
@@ -222,6 +230,34 @@ public class Main {
 					networkTrainerThread.start();						
 				}
 			}
+		});
+		
+		analyzeSamples.addActionListener(new ActionListener() {
+			@Override
+			public void actionPerformed(ActionEvent arg0) {
+				if (!networkWasTrained) {
+					updateLogPanel("Train the network first", Color.RED);
+				} else {
+					disablePanel();
+					
+					analyzerThread = new Thread() {
+						@Override
+						public void run() {
+							super.run();
+							
+							boolean operationSuccessful = networkTrainer.classifyInput(false);
+							if (!operationSuccessful) {
+								resetNetwork();
+								enablePanel();
+							} else {								
+								enablePanel();
+								updateLogPanel("Analysis completed", Color.BLACK);
+							}
+						}
+					};
+					analyzerThread.start();
+				}
+			}			
 		});
 		
 		addNodeToExc.addActionListener(new ActionListener() {
@@ -239,7 +275,7 @@ public class Main {
 					updateLogPanel("Node added to exc. nodes.", Color.BLACK); 
 					
 					// Prevent the user from stimulating the terminal.
-					selectedNode.terminalFrame.noneRadioButton.doClick();
+					//selectedNode.terminalFrame.noneRadioButton.doClick();
 					selectedNode.terminalFrame.randomSpikesRadioButton.setEnabled(false);
 					selectedNode.terminalFrame.refreshSignalRadioButton.setEnabled(false);
 					selectedNode.isExternallyStimulated = true;
@@ -296,7 +332,7 @@ public class Main {
 						}
 			        }
 					
-			        // If the sync was successful or it didn't take place, restore the settings of node and the terminal frame. 
+			        // If the sync was successful or if it didn't take place, restore the settings of node and the terminal frame. 
 			        if (syncSuccessful) {			        
 						excNodes.get(selectionIndex).isExternallyStimulated = false;
 						excNodes.get(selectionIndex).terminalFrame.randomSpikesRadioButton.setEnabled(true);
@@ -331,7 +367,7 @@ public class Main {
 				} else {
 					updateLogPanel("Node added to inh. nodes.", Color.BLACK); 
 					
-					selectedNode.terminalFrame.noneRadioButton.doClick();
+					//selectedNode.terminalFrame.noneRadioButton.doClick();
 					selectedNode.terminalFrame.randomSpikesRadioButton.setEnabled(false);
 					selectedNode.terminalFrame.refreshSignalRadioButton.setEnabled(false);
 					selectedNode.isExternallyStimulated = true;
@@ -500,6 +536,8 @@ public class Main {
 		inhNodes.clear();
 		inhNodesListModel.clear();
 		inhNodesListModel.addElement("No inhibitory node");
+		
+		networkWasTrained = false;
 		
 		enablePanel();
 	}

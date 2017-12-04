@@ -1,21 +1,26 @@
+import java.awt.Color;
+import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
+import java.io.ObjectInputStream;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
 import java.net.SocketException;
 import java.net.UnknownHostException;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Iterator;
 import java.util.concurrent.*;
 
 /**
  * Class that contains methods to send an input to one or more layers of the
  * neural network.
  * @author rodolfo
- *
  */
 
 public class NetworkStimulator {
-	
+		
 	/**
 	 * Send a luminance map as an input to the chosen input layers. 
 	 * Launch a separate thread for each layer to send the inputs. Then wait 
@@ -49,7 +54,7 @@ public class NetworkStimulator {
 			for (Future<?> inputSenderFuture : inputSenderFutures)
 				inputSenderFuture.get();
 		} catch (InterruptedException | ExecutionException e) {
-			System.out.println(e);
+			e.printStackTrace();
 			return false;
 		}
 		
@@ -93,7 +98,7 @@ public class NetworkStimulator {
 			try {
 				inetAddress = InetAddress.getByName(inputLayer.terminal.ip);
 			} catch (UnknownHostException e) {
-				System.out.println(e);
+				e.printStackTrace();
 			}
 			assert inetAddress != null;
 	        int natPort = inputLayer.terminal.natPort;
@@ -109,11 +114,11 @@ public class NetworkStimulator {
 					DatagramPacket spikeInputPacket = new DatagramPacket(spikeInput, spikeInput.length, inetAddress, natPort);
 					outputSocket.send(spikeInputPacket);
 				} catch (IOException e) {
-					System.out.println(e);
+					e.printStackTrace();
 				}		
 				
 				while((System.nanoTime() - startingTime) / Constants.NANO_TO_MILLS_FACTOR < deltaTime) {
-					// TODO: other ways other than a busy loop?
+					// TODO: Use sleep instead and handle eventual interruptions.
 				}
 			}
 			
