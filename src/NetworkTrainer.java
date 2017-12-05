@@ -11,6 +11,8 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Random;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
@@ -55,7 +57,8 @@ public class NetworkTrainer {
 	
 	private static class SpikesReceiver extends Thread {	
 		
-		boolean shutdown = false;
+		private BlockingQueue<WorkerThread> threadsDispatcherQueue = new ArrayBlockingQueue<>(128);
+		boolean shutdown = false; // This shutdown should be independent of the main one. 
 		boolean isTrainingSession = false;
 		DatagramSocket socket;
 		
@@ -175,11 +178,72 @@ public class NetworkTrainer {
 			}
 		}
 		
+		/**
+		 * Inner class whose job is that of creating a new thread for each node and to dispatch
+		 * the incoming Runnables from the run() method of the outer class to said threads. 
+		 * @author rodolfo
+		 *
+		 */
+		
+		private class ThreadsDispatcher implements Runnable {
+			
+			private ExecutorService workerThreadsExecutor = Executors.newFixedThreadPool(Main.excNodes.size());	
+			private HashMap<Integer, Future<?>> futuresMap = new HashMap<>(Main.excNodes.size());
+		
+			@Override
+			public void run() {
+				while (!shutdown) {
+					WorkerThread workerThread = null;
+					try {
+						workerThread = threadsDispatcherQueue.poll(1, TimeUnit.SECONDS); // Polling is necessary so that the operation doesn't block an eventual shutdown. 
+					} catch (InterruptedException e) {
+						e.printStackTrace();
+					}	
+															
+					if (workerThread != null) {
+						int ipHashCode = workerThread.spikesPacket.getAddress().hashCode();
+						Future<?> future = futuresMap.get(ipHashCode);
+						
+						// If a thread for the node corresponding to ipHashCode was created before,
+						// wait for its task to complete. 
+						if (future != null) {
+							try {
+								future.get(); // Worker thread has no blocking operation, so no need to poll. 
+							} catch (InterruptedException | ExecutionException e) {
+								e.printStackTrace();
+							}
+						} 
+
+						// Dispatch a new thread and store the associated future in the hash map. 
+						future = workerThreadsExecutor.submit(workerThread);
+						futuresMap.put(ipHashCode, future);						
+					}
+					
+				}
+				
+		    	/* Shutdown executor. */
+				
+				workerThreadsExecutor.shutdown();	    	
+		    	try {
+		    		boolean workerThreadsExecutorIsShutdown = workerThreadsExecutor.awaitTermination(1, TimeUnit.SECONDS);
+		    		if (!workerThreadsExecutorIsShutdown) {
+		    			System.out.println("ERROR: Failed to shutdown worker threads executor.");
+		    		}
+		    	} catch (InterruptedException e) {
+		    		e.printStackTrace();
+		    	}
+		    	
+		    	futuresMap.clear();
+			}
+									
+		}
+		
 		@Override
 		public void run() {
-			super.run();
+			super.run();			
 			
-			ExecutorService workerThreadsExecutor = Executors.newCachedThreadPool(); // TODO: Have fixed pool size with only one thread per node. 			
+			ExecutorService threadsDispatcherService = Executors.newSingleThreadExecutor();
+			threadsDispatcherService.execute(new ThreadsDispatcher());
 									
 	    	/* Create the datagram socket used to read the incoming spikes. */
 	    	
@@ -204,20 +268,24 @@ public class NetworkTrainer {
         			System.out.println("spikesReceiver socket is closed");
         			break;
         		}
-        		
-        		// Create a worker thread to do any kind of post-processing on the spikes sent
+        		        		
+        		// Create a new Runnable to do any kind of post-processing on the spikes sent
         		// by the terminal.
-        		if (currentInputClass != NO_INPUT) // Start a thread only if some input is currently being sent. 
-        			workerThreadsExecutor.execute(new WorkerThread(spikesPacket, spikesBuffer));                		
+        		if (currentInputClass != NO_INPUT) // Do so only an input is currently being sent to the network.
+					try {
+						threadsDispatcherQueue.offer(new WorkerThread(spikesPacket, spikesBuffer), Constants.DELTA_TIME / 2, TimeUnit.MILLISECONDS);
+					} catch (InterruptedException e) {
+						e.printStackTrace();
+					}               		
 	    	}
 	    	
 	    	/* Shutdown executor. */
 	    	
-	    	workerThreadsExecutor.shutdown();	    	
+	    	threadsDispatcherService.shutdown();	    	
 	    	try {
-	    		boolean workerThreadsExecutorIsShutdown = workerThreadsExecutor.awaitTermination(1, TimeUnit.SECONDS);
+	    		boolean workerThreadsExecutorIsShutdown = threadsDispatcherService.awaitTermination(2, TimeUnit.SECONDS);
 	    		if (!workerThreadsExecutorIsShutdown) {
-	    			System.out.println("ERROR: Failed to shutdown worker threads executor.");
+	    			System.out.println("ERROR: Failed to shutdown threads dispatcher executor.");
 	    		}
 	    	} catch (InterruptedException e) {
 	    		e.printStackTrace();
@@ -468,7 +536,7 @@ public class NetworkTrainer {
 						sparseWeightsFloat[neuronIndex * activeSynPerNeuron + weightIndex + weightOffset] = weightSign * randomNumber.nextFloat();
 						sparseWeights[neuronIndex * activeSynPerNeuron + weightIndex + weightOffset] = 
 								(byte)(sparseWeightsFloat[neuronIndex * activeSynPerNeuron + weightIndex + weightOffset] / Constants.MIN_WEIGHT);
-	        			updateWeightsFlags[neuronIndex * activeSynPerNeuron + weightIndex + weightOffset] = Main.inhNodes.contains(presynapticTerminal) ? 
+	        			updateWeightsFlags[neuronIndex * activeSynPerNeuron + weightIndex + weightOffset] = weightSign == -1 ? 
 	        					DONT_UPDATE_WEIGHT : UPDATE_WEIGHT;
 					}
 					
@@ -513,12 +581,14 @@ public class NetworkTrainer {
 		untaggedFiringRateMap = new ConcurrentHashMap<>(Main.excNodes.size());	
 		
 		// Give the last terminal to be updated by setSynapticWeights a little bit of time to receive the package.
-		try {			
-			Thread.sleep(3000);
-		} catch (InterruptedException e) {
-			Main.updateLogPanel("Simulation interrupted while sleeping", Color.RED);
-			return ERROR_OCCURRED;
-		}		
+		if (isTrainingSession) {
+			try {			
+				Thread.sleep(3000);
+			} catch (InterruptedException e) {
+				Main.updateLogPanel("Simulation interrupted while sleeping", Color.RED);
+				return ERROR_OCCURRED;
+			}		
+		}
 				
 		Main.updateLogPanel("Analysis started", Color.BLACK);
 		
@@ -608,17 +678,19 @@ public class NetworkTrainer {
 	        	//currentInputClass = NO_INPUT;
 	        	
 	       	    // Wait before sending the new stimulus according to the PAUSE_LENGTH constant. 
+	        	/*
 	        	try {
 					Thread.sleep(Constants.PAUSE_LENGTH);
 				} catch (InterruptedException e) {
 					Main.updateLogPanel("Stimulation interrupted during pause", Color.RED);
 					return ERROR_OCCURRED;
 				}     
+				*/
 	        	
 	        	if (!isTrainingSession)
 	        		System.out.println("Probability " + probability);
 	        	
-	        	sampleAnalysisFinished = isTrainingSession | probability > 0.3f;
+	        	sampleAnalysisFinished = isTrainingSession | probability > 0.5f;
     		}
         	
         	if (!isTrainingSession)

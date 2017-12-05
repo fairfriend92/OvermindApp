@@ -39,7 +39,7 @@ public class SpikeInputCreator {
 			int byteIndex = index / 8;
 			
 			// Set the bit corresponding to the current pixel or synapse
-			if (luminance > randomLuminance) 
+			if (luminance < randomLuminance) 
 				spikeInput[byteIndex] |= (1 << index - byteIndex * 8);		
 			
 			index++;

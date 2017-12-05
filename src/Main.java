@@ -84,7 +84,7 @@ public class Main {
 	        public void run() {
 	        	candidatePicsReceiver.shutdown = true;
 	        	serverInterfacer.shutdown = true;
-	        	networkTrainer.shutdown = true;
+	        	NetworkTrainer.shutdown = true;
 	        	
 	        	try {
 					candidatePicsReceiver.serverSocket.close();
