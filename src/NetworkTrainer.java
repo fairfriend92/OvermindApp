@@ -1,4 +1,5 @@
 import java.awt.Color;
+import java.awt.List;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
@@ -20,6 +21,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class NetworkTrainer {	
 	/* 
@@ -47,8 +49,33 @@ public class NetworkTrainer {
 	// Variables used to determine to which class the current input belongs.
 	private static volatile int tentativeClass = -1; // TODO: Should these two be atomic?
 	private static volatile float probability = 0.0f;
+	private static volatile RateVectorsDistances rateVectorsDistances = new RateVectorsDistances();
 	
+	// Flags that control the execution of the code
 	static boolean shutdown = false;
+	static AtomicBoolean analysisInterrupt = new AtomicBoolean(false);
+	
+	/**
+	 * Trivial utility class which stores how much distance a certain vector of 
+	 * firing rates is from the origin and has a get method to retrieve the average
+	 * of said distances. 
+	 * @author rodolfo
+	 *
+	 */
+	
+	private static class RateVectorsDistances {
+		private float[] rateVectorsDistances = new float[5];
+		
+		synchronized void update(int i, float distance) {
+			rateVectorsDistances[i] = distance;
+		}
+		
+		synchronized float getMean() {
+			return (rateVectorsDistances[0] + rateVectorsDistances[1] +
+					rateVectorsDistances[2] + rateVectorsDistances[3] +
+					rateVectorsDistances[4]) / 5;
+		}
+	}
 			
 	/**
 	 * Class that waits for UDP packets to arrive at a specific port and
@@ -108,6 +135,7 @@ public class NetworkTrainer {
             			}
             			
             			assert meanFiringRates != null;
+            			float distance = 0; // Distance from the origin of the firing rate vector. 
             			
 	        			// Iterating over the the neurons that produced the spike trains.
 	        			for (int index = 0; index < numOfNeurons; index++) { 
@@ -117,7 +145,11 @@ public class NetworkTrainer {
 	        				meanFiringRates[index] = ((spikesBuffer[byteIndex] >> (index - byteIndex * 8)) & 1) == 1 ? 
 	        						meanFiringRates[index] + Constants.MEAN_RATE_INCREMENT * (1 - meanFiringRates[index]) : 
 	        							meanFiringRates[index] - Constants.MEAN_RATE_INCREMENT * meanFiringRates[index];
+	        				
+	        				distance += Math.pow(meanFiringRates[index], 2);
 	        			}
+	        			
+	        			rateVectorsDistances.update(currentInputClass, (float)Math.sqrt(distance));
         			} else {
         				// Vector of the firing rates that must be compared. 
         				float[] untaggedFiringRate = untaggedFiringRateMap.get(ipHashCode);
@@ -575,7 +607,8 @@ public class NetworkTrainer {
 	boolean classifyInput(boolean isTrainingSession)  {	
 		final boolean ERROR_OCCURRED = false;
 		final boolean OPERATION_SUCCESSFUL = true;				
-			
+		analysisInterrupt = new AtomicBoolean(false);
+		
 		NetworkStimulator networkStimulator = new NetworkStimulator();		
 		
 		untaggedFiringRateMap = new ConcurrentHashMap<>(Main.excNodes.size());	
@@ -621,6 +654,14 @@ public class NetworkTrainer {
 		
 		ObjectInputStream objectInputStream = null; // To read the Candidate object from the file stream.
         FileInputStream fileInputStream = null; // To read from the file.
+        
+        // Each ArrayList contains only the candidate of a certain kind 
+        ArrayList<ArrayList<GrayscaleCandidate>> candidatesCollections = 
+        		new ArrayList<ArrayList<GrayscaleCandidate>>(5); // 5 are the different classes of input.   
+        for (int i = 0; i < 5; i++)
+        	candidatesCollections.add(new ArrayList<GrayscaleCandidate>(sampleSetFiles.size() / 5)); // Here we assume that the 5 classes are equally represented. 
+        
+        // Collection of all the candidates.
         GrayscaleCandidate[] grayscaleCandidates = new GrayscaleCandidate[sampleSetFiles.size()];        
         
         // Convert the files into objects and save them. 
@@ -628,11 +669,29 @@ public class NetworkTrainer {
         	try {
         		fileInputStream = new FileInputStream(sampleSetFiles.get(i));
         		objectInputStream = new ObjectInputStream(fileInputStream);
-        		grayscaleCandidates[i] = (GrayscaleCandidate) objectInputStream.readObject();
+        		GrayscaleCandidate grayscaleCandidate = (GrayscaleCandidate) objectInputStream.readObject();
+        		
+        		// Add the last candidate to the ArrayList corresponding to its kind. 
+        		candidatesCollections.get(grayscaleCandidate.particleTag).add(grayscaleCandidate);
         	} catch (ClassNotFoundException | IOException e) {
         		e.printStackTrace();
         	} 
-        }        
+        }   
+        
+        /*
+         * Copy the candidates in one single array in a way so that candidates of 
+         * the same kind are adjacent.
+         */
+        
+        int offset = 0;
+        for (int i = 0; i < 5; i++) {
+        	// The single collection of candidates of class i. 
+        	GrayscaleCandidate[] candidatesCollection = new GrayscaleCandidate[candidatesCollections.get(i).size()];
+        	candidatesCollection = candidatesCollections.get(i).toArray(candidatesCollection);
+        	
+        	System.arraycopy(candidatesCollection, 0, grayscaleCandidates, offset, candidatesCollections.get(i).size());
+        	offset += candidatesCollections.get(i).size();
+        }
         
         /*
          * Send the retrieved grayscale candidates to the network.
@@ -649,54 +708,58 @@ public class NetworkTrainer {
     	SpikesReceiver spikesReceiver = new SpikesReceiver(isTrainingSession);
     	spikesReceiver.start();      
     	
-    	for (GrayscaleCandidate candidate : grayscaleCandidates) {
-    		boolean sampleAnalysisFinished = false;   		
-        	Arrays.fill(inputCandidates, candidate); // In this implementation the inputs of the nodes are all the same.
-        	
-    		// If this is not a training session create additional arrays for each node to store 
-    		// the firing rates of their neurons in response to the samples. 
-    		if (!isTrainingSession) {
-    			for (Node excNode : Main.excNodes) {
-    				untaggedFiringRateMap.put(excNode.physicalID, new float[excNode.terminal.numOfNeurons]);
-    			}
-    		}
-        	
-    		// If this is not a training session the same input is sent to the network until its class
-        	// has not been determined
-        	while (!sampleAnalysisFinished & !shutdown) {
-        		currentInputClass = candidate.particleTag;    		
-
-	        	// Stimulate the input layers with the candidate grayscale map.
-	        	// TODO: Handle disconnection of node during stimulation.
-	        	boolean noErrorRaised = 
-	        			networkStimulator.stimulateWithLuminanceMap(Constants.STIMULATION_LENGTH, Constants.DELTA_TIME, inputLayers, inputCandidates);  
-	        	if (!noErrorRaised) {
-	        		Main.updateLogPanel("Error occurred during the stimulation", Color.RED);
-	        		return ERROR_OCCURRED;
-	        	}        	
-	        	        	
-	        	//currentInputClass = NO_INPUT;
+    	while (!analysisInterrupt.get() & !shutdown) {
+	    	for (GrayscaleCandidate candidate : grayscaleCandidates) {
+	    		boolean sampleAnalysisFinished = false;   		
+	        	Arrays.fill(inputCandidates, candidate); // In this implementation the inputs of the nodes are all the same.
 	        	
-	       	    // Wait before sending the new stimulus according to the PAUSE_LENGTH constant. 
-	        	/*
-	        	try {
-					Thread.sleep(Constants.PAUSE_LENGTH);
-				} catch (InterruptedException e) {
-					Main.updateLogPanel("Stimulation interrupted during pause", Color.RED);
-					return ERROR_OCCURRED;
-				}     
-				*/
+	    		// If this is not a training session create additional arrays for each node to store 
+	    		// the firing rates of their neurons in response to the samples. 
+	    		if (!isTrainingSession) {
+	    			for (Node excNode : Main.excNodes) {
+	    				untaggedFiringRateMap.put(excNode.physicalID, new float[excNode.terminal.numOfNeurons]);
+	    			}
+	    		}
+	        	
+	    		// If this is not a training session the same input is sent to the network until its class
+	        	// has not been determined
+	        	while (!sampleAnalysisFinished & !shutdown) {
+	        		currentInputClass = candidate.particleTag;    		
+	
+		        	// Stimulate the input layers with the candidate grayscale map.
+		        	// TODO: Handle disconnection of node during stimulation.
+		        	boolean noErrorRaised = 
+		        			networkStimulator.stimulateWithLuminanceMap(Constants.STIMULATION_LENGTH, Constants.DELTA_TIME, inputLayers, inputCandidates);  
+		        	if (!noErrorRaised) {
+		        		Main.updateLogPanel("Error occurred during the stimulation", Color.RED);
+		        		return ERROR_OCCURRED;
+		        	}        	
+		        	        	
+		        	//currentInputClass = NO_INPUT;
+		        	
+		       	    // Wait before sending the new stimulus according to the PAUSE_LENGTH constant. 
+		        	/*
+		        	try {
+						Thread.sleep(Constants.PAUSE_LENGTH);
+					} catch (InterruptedException e) {
+						Main.updateLogPanel("Stimulation interrupted during pause", Color.RED);
+						return ERROR_OCCURRED;
+					}     
+					*/
+		        	
+		        	if (!isTrainingSession)
+		        		System.out.println("Probability " + probability);
+		        	
+		        	sampleAnalysisFinished = isTrainingSession | probability > 0.5f;
+	    		}
 	        	
 	        	if (!isTrainingSession)
-	        		System.out.println("Probability " + probability);
-	        	
-	        	sampleAnalysisFinished = isTrainingSession | probability > 0.5f;
-    		}
-        	
-        	if (!isTrainingSession)
-        		System.out.println("Real class: " + candidate.particleTag + " Tentative class: " + tentativeClass);
-        }
-    	
+	        		System.out.println("Real class: " + candidate.particleTag + " Tentative class: " + tentativeClass);
+	        }
+	    	
+	    	System.out.println(" " + rateVectorsDistances.getMean());
+    	}   	
+   	
     	spikesReceiver.shutdown = true;
     	spikesReceiver.socket.close();
     	try {
@@ -706,8 +769,8 @@ public class NetworkTrainer {
 			return ERROR_OCCURRED;
     	}
     	
-    	untaggedFiringRateMap.clear();
-           
+    	untaggedFiringRateMap.clear();    	
+          
 		return OPERATION_SUCCESSFUL;				
 	}
 	

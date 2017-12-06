@@ -43,6 +43,7 @@ public class Main {
 	private static JButton removeNodeFromExc = new JButton("Remove");
 	private static JButton removeNodeFromInh = new JButton("Remove");
 	private static JButton trainNetwork = new JButton("Train");
+	private static boolean isTraining = false; // Flag that tells if the train button has been pressed and if the network is being trained. 
 	private static JButton analyzeSamples = new JButton("Analyze");
 	
 	/* List models */
@@ -200,34 +201,45 @@ public class Main {
 		trainNetwork.addActionListener(new ActionListener() { 
 			@Override
 			public void actionPerformed(ActionEvent arg0) {
-				if (excNodes.isEmpty() | inhNodes.isEmpty()) { 
-					updateLogPanel("Select an input and output layer first", Color.RED);
-				} else {
-					disablePanel(); // During the learning phase the user shouldn't change the network topology.	
-					
-					networkTrainerThread = new Thread() {
-						@Override
-						public void run () {
-							super.run();
-							boolean operationSuccessful = true; 
-							
-							operationSuccessful &= networkTrainer.checkTopology();							
-							if (operationSuccessful)
-								operationSuccessful &= networkTrainer.setSynapticWeights(); 
-							if (operationSuccessful)
-								operationSuccessful &= networkTrainer.classifyInput(true);
-							
-							if (!operationSuccessful) {
-								resetNetwork();
+				if (!isTraining) {			
+					if (excNodes.isEmpty() | inhNodes.isEmpty()) { 
+						updateLogPanel("Select an input and output layer first", Color.RED);
+					} else {
+						disablePanel(); // During the learning phase the user shouldn't change the network topology.	
+						
+						isTraining = true;
+						
+						networkTrainerThread = new Thread() {
+							@Override
+							public void run () {
+								super.run();
+								boolean operationSuccessful = true; 
+								
+								operationSuccessful &= networkTrainer.checkTopology();							
+								if (operationSuccessful)
+									operationSuccessful &= networkTrainer.setSynapticWeights(); 
+								if (operationSuccessful) {
+									trainNetwork.setEnabled(true);
+									trainNetwork.setText("Stop");
+									operationSuccessful &= networkTrainer.classifyInput(true);
+								}
+																				
+								if (!operationSuccessful) {
+									resetNetwork();
+								} else {								
+									networkWasTrained = true;
+									updateLogPanel("Training completed", Color.BLACK);
+								}
+								
+								isTraining = false;
+								trainNetwork.setText("Train");
 								enablePanel();
-							} else {								
-								enablePanel();
-								networkWasTrained = true;
-								updateLogPanel("Training completed", Color.BLACK);
 							}
-						}
-					};
-					networkTrainerThread.start();						
+						};
+						networkTrainerThread.start();						
+					}
+				} else {
+					NetworkTrainer.analysisInterrupt.set(true);;
 				}
 			}
 		});
