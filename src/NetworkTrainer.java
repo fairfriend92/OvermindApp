@@ -33,9 +33,8 @@ public class NetworkTrainer {
 	// Stores for each node the firing rates in response to an input that must be classified.
 	private static ConcurrentHashMap<Integer, float[]> untaggedFiringRateMap;  
 	
-	// Stores the distance between the vector of firing rates for each class of input. 
-	private static ConcurrentHashMap<Integer, float[][]> firingRateDistancesMap;
-	
+	private static ConcurrentHashMap<Integer, float[]> oldFiringRateMap;
+
 	// Number that keeps track of which kind of input is being used to stimulate the network.  
 	private static volatile int currentInputClass = Constants.UNDETERMINED;
 		
@@ -106,9 +105,6 @@ public class NetworkTrainer {
         			
         			if (isTrainingSession) {
               			float[] meanFiringRates = null;
-              			
-              			// Matrix storing the distances between firing rate vectors.
-        				float[][] firingRateDistances = new float[5][5];
 	        			
               			// Retrieve from the collection of hash maps the one associated to the current input class. 
               			// From that has map, retrieve the array associated to the node identified by ipHashCode. 
@@ -121,42 +117,33 @@ public class NetworkTrainer {
 	        				int byteIndex = neuronIndex / 8;
 	        				
 	        				// If the current neuron had emitted a spike, increase the firing rate using a simple moving average algorithm. 
-	        				meanFiringRates[neuronIndex] = ((spikesBuffer[byteIndex] >> (neuronIndex - byteIndex * 8)) & 1) == 1 ? 
-	        						meanFiringRates[neuronIndex] + Constants.MEAN_RATE_INCREMENT * (1 - meanFiringRates[neuronIndex]) : 
-	        							meanFiringRates[neuronIndex] - Constants.MEAN_RATE_INCREMENT * meanFiringRates[neuronIndex];
-	        				
-	        				// Compute the distance between the firing rate vectors that is being updated with the other four belonging to the same node. 
-	        				for (int classIndex = 0; classIndex < 5; classIndex++) {
-	        					float distance = (float)Math.pow(meanFiringRates[neuronIndex] - taggedFiringRates[classIndex][neuronIndex], 2);
-	        					firingRateDistances[currentInputClass][classIndex] += distance;
-	        					firingRateDistances[classIndex][currentInputClass] += distance;
-	        				}
-	        				
-	        			}
-	        			
-	        			firingRateDistancesMap.put(ipHashCode, firingRateDistances);	        			
+	        				meanFiringRates[neuronIndex] += ((spikesBuffer[byteIndex] >> (neuronIndex - byteIndex * 8)) & 1) == 1 ? 
+	        						+ Constants.MEAN_RATE_INCREMENT * (1 - meanFiringRates[neuronIndex]) : 
+	        							- Constants.MEAN_RATE_INCREMENT * meanFiringRates[neuronIndex];	        				
+	        					        				
+	        			}	        			
         			} else {
         				// Vector of the firing rates that must be compared. 
         				float[] untaggedFiringRate = untaggedFiringRateMap.get(ipHashCode);        				
         				        				        				
         				// Float vector with each element indicating how similar the firing rate is to that of the relative class.         				
-        				float[] distances = new float[5];   
-        				float norm = 0, tentativeMaxDistance = 0;
-        				     
+        				float[] distances = new float[5];        
+        				
         				for (int index = 0; index < numOfNeurons; index++) { 
 	        				int byteIndex = index / 8;
 	        				
-	        				untaggedFiringRate[index] = ((spikesBuffer[byteIndex] >> (index - byteIndex * 8)) & 1) == 1 ? 
-	        						untaggedFiringRate[index] + Constants.MEAN_RATE_INCREMENT * (1 - untaggedFiringRate[index]) : 
-	        							untaggedFiringRate[index] - Constants.MEAN_RATE_INCREMENT * untaggedFiringRate[index];
+	        				untaggedFiringRate[index] += ((spikesBuffer[byteIndex] >> (index - byteIndex * 8)) & 1) == 1 ? 
+	        						+ Constants.MEAN_RATE_INCREMENT * (1 - untaggedFiringRate[index]) : 
+	        							- Constants.MEAN_RATE_INCREMENT * untaggedFiringRate[index];
 	        				
 	        				for (int i = 0; i <5; i++)
 	        					distances[i] += Math.pow(taggedFiringRates[i][index] - untaggedFiringRate[index], 2);
 	        			}              				
         				
+        				float norm = 0, tentativeMaxDistance = 0;
+        				
         				for (int i = 0; i < 5; i++) {        				
-	        				// The distances are normalized.
-	        				distances[i] = (float) (Math.sqrt(distances[i]) / numOfNeurons);
+	        				distances[i] = (float) Math.sqrt(distances[i] / numOfNeurons);
 	        				
 	        				// The probability for each class is computed.
 	        				distances[i] = 1 - distances[i];
@@ -414,10 +401,8 @@ public class NetworkTrainer {
 		for (int i = 0; i < 5; i++) {
 			taggedFiringRateMaps.add(new ConcurrentHashMap<>(Main.excNodes.size()));
 		}		
-		firingRateDistancesMap = new ConcurrentHashMap<Integer, float[][]>(Main.excNodes.size()); 
 		
 		Main.updateLogPanel("Weights update started", Color.BLACK);
-
 		
 		/*
 		 * Compute random weights for all the synapses of the excitatory and inhibitory nodes.
@@ -501,10 +486,7 @@ public class NetworkTrainer {
 			for (ConcurrentHashMap<Integer, float[]> hashMap : taggedFiringRateMaps) {
 				if (!hashMap.containsKey(excNode.physicalID))
 					hashMap.put(excNode.physicalID, new float[excNode.terminal.numOfNeurons]);
-			}
-			if (!firingRateDistancesMap.containsKey(excNode.physicalID))
-				firingRateDistancesMap.put(excNode.physicalID, new float[5][5]);
-			
+			}			
 			
 			// Here is the part of the algorithm shared by inhibitory and excitatory nodes.			
 			int activeSynPerNeuron = excNode.originalNumOfSynapses - excNode.terminal.numOfDendrites;
@@ -577,6 +559,7 @@ public class NetworkTrainer {
 		NetworkStimulator networkStimulator = new NetworkStimulator();		
 		
 		untaggedFiringRateMap = new ConcurrentHashMap<>(Main.excNodes.size());	
+		oldFiringRateMap = new ConcurrentHashMap<>(Main.excNodes.size());	
 		
 		// Give the last terminal to be updated by setSynapticWeights a little bit of time to receive the package.
 		if (isTrainingSession) {
@@ -673,62 +656,83 @@ public class NetworkTrainer {
     	SpikesReceiver spikesReceiver = new SpikesReceiver(isTrainingSession);
     	spikesReceiver.start();      
     	
-    	while (!analysisInterrupt.get() & !shutdown) {
-	    	for (GrayscaleCandidate candidate : grayscaleCandidates) {
-	    		boolean sampleAnalysisFinished = false;   		
-	        	Arrays.fill(inputCandidates, candidate); // In this implementation the inputs of the nodes are all the same.
-	        	
-	    		// If this is not a training session create additional arrays for each node to store 
+    	float rightGuess = 0.0f, totalGuess = 0.0f;
+    	
+    	for (GrayscaleCandidate candidate : grayscaleCandidates) {
+    		boolean sampleAnalysisFinished = false;   		
+        	Arrays.fill(inputCandidates, candidate); // In this implementation the inputs of the nodes are all the same.	        		    		
+    		
+    		for (Node excNode : Main.excNodes) { 
+    			// If this is not a training session create additional arrays for each node to store 
 	    		// the firing rates of their neurons in response to the samples. 
-	    		if (!isTrainingSession) { // TODO: Should this be moved in the subsequent while loop?
-	    			for (Node excNode : Main.excNodes) { 
-	    				untaggedFiringRateMap.put(excNode.physicalID, new float[excNode.terminal.numOfNeurons]);
-	    			}
-	    		}
+    			if (!isTrainingSession) {
+    				untaggedFiringRateMap.put(excNode.physicalID, new float[excNode.terminal.numOfNeurons]);
+    			}
+    			// Otherwise create arrays to store the firing rate of a certain input class at the point
+    			// in time before a new input was sent. 
+    			else {
+    				oldFiringRateMap.put(excNode.physicalID, new float[excNode.terminal.numOfNeurons]);
+    			}
+    		}
+    			        	
+    		// Break the loop if the analysis has been interrupted or the application shutdown or 
+    		// the sample has been thoroughly analyzed. 
+        	while ( !analysisInterrupt.get() & !shutdown & !sampleAnalysisFinished) {
+        		currentInputClass = candidate.particleTag;    		
+
+	        	// Stimulate the input layers with the candidate grayscale map.
+	        	// TODO: Handle disconnection of node during stimulation.
+	        	boolean noErrorRaised = 
+	        			networkStimulator.stimulateWithLuminanceMap(Constants.STIMULATION_LENGTH, Constants.DELTA_TIME, inputLayers, inputCandidates);  
+	        	if (!noErrorRaised) {
+	        		Main.updateLogPanel("Error occurred during the stimulation", Color.RED);
+	        		return ERROR_OCCURRED;
+	        	}        	
+	        	        	
+	        	//currentInputClass = NO_INPUT;
 	        	
-	    		// If this is not a training session the same input is sent to the network until its class
-	        	// has not been determined
-	        	while (!sampleAnalysisFinished & !shutdown) {
-	        		currentInputClass = candidate.particleTag;    		
-	
-		        	// Stimulate the input layers with the candidate grayscale map.
-		        	// TODO: Handle disconnection of node during stimulation.
-		        	boolean noErrorRaised = 
-		        			networkStimulator.stimulateWithLuminanceMap(Constants.STIMULATION_LENGTH, Constants.DELTA_TIME, inputLayers, inputCandidates);  
-		        	if (!noErrorRaised) {
-		        		Main.updateLogPanel("Error occurred during the stimulation", Color.RED);
-		        		return ERROR_OCCURRED;
-		        	}        	
-		        	        	
-		        	//currentInputClass = NO_INPUT;
-		        	
-		       	    // Wait before sending the new stimulus according to the PAUSE_LENGTH constant. 
-		        	/*
-		        	try {
-						Thread.sleep(Constants.PAUSE_LENGTH);
-					} catch (InterruptedException e) {
-						Main.updateLogPanel("Stimulation interrupted during pause", Color.RED);
-						return ERROR_OCCURRED;
-					}     
-					*/
-		        	
-		        	if (!isTrainingSession)
-		        		System.out.println("Probability " + probability);
-		        	
-		        	sampleAnalysisFinished = isTrainingSession | probability > 0.5f;
-	    		}
+	       	    // Wait before sending the new stimulus according to the PAUSE_LENGTH constant. 
+	        	/*
+	        	try {
+					Thread.sleep(Constants.PAUSE_LENGTH);
+				} catch (InterruptedException e) {
+					Main.updateLogPanel("Stimulation interrupted during pause", Color.RED);
+					return ERROR_OCCURRED;
+				}     
+				*/
 	        	
-	        	if (!isTrainingSession)
-	        		System.out.println("Real class: " + candidate.particleTag + " Tentative class: " + tentativeClass);
-	        }
-	    	
-	    	// Retrieve one particular matrix to gauge how the learning process is proceeding.
-	    	float[][] distancesMatrix = firingRateDistancesMap.get(Main.excNodes.get(0).physicalID);
-	    	float totalDistance = distancesMatrix[0][1] + distancesMatrix[0][2] + distancesMatrix[0][3] + distancesMatrix[0][4] +
-	    			distancesMatrix[1][2] + distancesMatrix[1][3] + distancesMatrix[1][4] + distancesMatrix[2][3] + distancesMatrix[2][4] +
-	    			distancesMatrix[3][4];	    	
-	    	System.out.println("Total distance " + totalDistance);
-    	}   	
+	        	float firingRateDelta = 0;
+	        	
+	        	if (!isTrainingSession) {
+	        		System.out.println("Probability " + probability);
+	        	} else {	        	
+	        		// Pick up a random node to gauge the progression of the learning algorithm. 
+		        	int nodeID = Main.excNodes.get(0).physicalID;
+		        	
+		        	// Compute how much the prototype firing rate vector for the current class 
+		        	// and the chosen node has changed.
+		        	float[] oldFiringRate = oldFiringRateMap.get(nodeID);
+		        	float[] newFiringRate = taggedFiringRateMaps.get(currentInputClass).get(nodeID);
+		        	for (int i = 0; i < newFiringRate.length; i++) {
+		        		firingRateDelta += Math.abs(newFiringRate[i] - oldFiringRate[i]);
+		        	}
+		        	
+		        	// Update the old firing rate vector.
+		        	System.arraycopy(newFiringRate, 0, oldFiringRate, 0, newFiringRate.length);	
+		        	
+		        	System.out.println("firingRateDelta " + firingRateDelta);      					        	
+	        	}
+	        	
+	        	sampleAnalysisFinished = probability > 0.2013f | (firingRateDelta != 0 & firingRateDelta < 1.5);
+    		}
+        	
+        	totalGuess++;
+        	if (tentativeClass == currentInputClass)
+        		rightGuess++;
+        	if (!isTrainingSession)
+        		System.out.println("Real class: " + candidate.particleTag + " Tentative class: " + tentativeClass + " Success rate: " + (rightGuess / totalGuess));
+        }   	
+    	  	
    	
     	spikesReceiver.shutdown = true;
     	spikesReceiver.socket.close();
@@ -739,7 +743,8 @@ public class NetworkTrainer {
 			return ERROR_OCCURRED;
     	}
     	
-    	untaggedFiringRateMap.clear();    	
+    	untaggedFiringRateMap.clear();   
+    	oldFiringRateMap.clear();
           
 		return OPERATION_SUCCESSFUL;				
 	}

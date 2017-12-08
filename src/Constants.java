@@ -10,7 +10,7 @@ public class Constants {
     static int DELTA_TIME = 10; 
     static int PAUSE_LENGTH = 2000; 
     static short MAX_PIC_PIXELS = 1024; // The maximum number of pixels a sample image can be made of.
-    static float MEAN_RATE_INCREMENT = 0.1f; // Inverse of the number of samples need to compute the mean firing rate.
+    static float MEAN_RATE_INCREMENT = 0.01f; // Inverse of the number of samples need to compute the mean firing rate.
     
     /* Network related constants */
 	static final int IPTOS_THROUGHPUT = 0x08;
