@@ -9,13 +9,15 @@ import java.util.ArrayList;
 
 public class SpikeInputCreator {
 	
+	private int[] waitARP = new int[MuonTeacherConst.MAX_PIC_PIXELS]; // Array holding counter indexes that account for the absolute refractory period.
+	
 	/**
 	 * Create a spike input from a map of pixel luminance
 	 */
 	
 	// TODO: Implement refractoriness?
 	
-	public static byte[] createFromLuminance(float[] grayscalePixels) {
+	public  byte[] createFromLuminance(float[] grayscalePixels) {
 		byte[] spikeInput;
 		short lengthInBytes; // How many bytes are needed to represent the spike input?
 		
@@ -39,8 +41,17 @@ public class SpikeInputCreator {
 			int byteIndex = index / 8;
 			
 			// Set the bit corresponding to the current pixel or synapse
-			if (luminance < randomLuminance) 
-				spikeInput[byteIndex] |= (1 << index - byteIndex * 8);		
+			if (luminance < randomLuminance) {
+				if (waitARP[index] == 0) { // A spike can be emitted only after the absolute refractory period has elapsed.
+					spikeInput[byteIndex] |= (1 << index - byteIndex * 8);
+        			waitARP[index] = (int) (Constants.ABSOLUTE_REFRACTORY_PERIOD / Constants.SAMPLING_RATE);  
+				} else if (waitARP[index] > 0) {
+					waitARP[index]--;
+					spikeInput[byteIndex] &= ~(1 << index - byteIndex * 8);
+				} else {
+					spikeInput[byteIndex] &= ~(1 << index - byteIndex * 8);
+				}
+			}
 			
 			index++;
 		}
@@ -61,7 +72,7 @@ public class SpikeInputCreator {
 		for (byte[] spikeInput : spikeTrains) { // Iterating over time
 			for (int index = 0; index < numOfNeurons; index++) { // Iterating over the the neurons that produced the spike trains
 				int byteIndex = index / 8;
-				
+												
 				// If the current neuron had emitted a spike, increase the firing rate
 				firingRates[index] = ((spikeInput[byteIndex] >> (index - byteIndex * 8)) & 1) == 1 ? 
 						firingRates[index] + 1 : firingRates[index];

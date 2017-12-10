@@ -287,7 +287,7 @@ public class Main {
 					updateLogPanel("Node added to exc. nodes.", Color.BLACK); 
 					
 					// Prevent the user from stimulating the terminal.
-					//selectedNode.terminalFrame.noneRadioButton.doClick();
+					selectedNode.terminalFrame.noneRadioButton.doClick();
 					selectedNode.terminalFrame.randomSpikesRadioButton.setEnabled(false);
 					selectedNode.terminalFrame.refreshSignalRadioButton.setEnabled(false);
 					selectedNode.isExternallyStimulated = true;
@@ -379,7 +379,7 @@ public class Main {
 				} else {
 					updateLogPanel("Node added to inh. nodes.", Color.BLACK); 
 					
-					//selectedNode.terminalFrame.noneRadioButton.doClick();
+					selectedNode.terminalFrame.noneRadioButton.doClick();
 					selectedNode.terminalFrame.randomSpikesRadioButton.setEnabled(false);
 					selectedNode.terminalFrame.refreshSignalRadioButton.setEnabled(false);
 					selectedNode.isExternallyStimulated = true;
@@ -478,11 +478,11 @@ public class Main {
         	
         	// Retreive the tag to associate with the map in the GrayscaleCandidate object from the file name.
         	if (fileName.contains("undetermined"))
-        		tag = Constants.UNDETERMINED;
+        		tag = MuonTeacherConst.UNDETERMINED;
         	else if (fileName.contains("track"))
-        		tag = Constants.TRACK;
+        		tag = MuonTeacherConst.TRACK;
         	else if (fileName.contains("spot"))
-        		tag = Constants.SPOT;
+        		tag = MuonTeacherConst.SPOT;
         	else {
         		fileNameIsValid = false;
         		System.out.println("" + fileName + " is not a valid file name.");
@@ -534,8 +534,24 @@ public class Main {
 		}
 		
 		for (Node inhNode : inhNodes) {
+			boolean connectionFound = removeThisAppFromConnections(inhNode.terminal);
+			if (connectionFound) {
+				VirtualLayerManager.unsyncNodes.add(inhNode);
+				Future<Boolean> future = VirtualLayerManager.syncNodes();	  			        
+				try {
+					Boolean syncSuccessful = future.get();
+					if (!syncSuccessful) {
+						Main.updateLogPanel("TCP stream interrupted", Color.RED);
+						VirtualLayerManager.removeNode(inhNode, true);
+					} 
+				} catch (InterruptedException | ExecutionException e) {
+					e.printStackTrace();
+				}
+			}
+			
 			inhNode.terminalFrame.randomSpikesRadioButton.setEnabled(true);
 			inhNode.terminalFrame.refreshSignalRadioButton.setEnabled(true);
+			inhNode.isExternallyStimulated = false; 
 			
 			if (!VirtualLayerManager.availableNodes.contains(inhNode))
 				VirtualLayerManager.availableNodes.add(inhNode);
@@ -568,18 +584,18 @@ public class Main {
 		
 		while (iterator.hasNext()) {
 			com.example.overmind.Terminal presynapticTerminal = (com.example.overmind.Terminal) iterator.next();
-			if (presynapticTerminal.natPort == Constants.APP_UDP_PORT & 
+			if (presynapticTerminal.natPort == MuonTeacherConst.APP_UDP_PORT & 
 					presynapticTerminal.ip.equals(terminal.serverIP)) {
 				connectionFound = true;
 				iterator.remove();
-				terminal.numOfDendrites += Constants.MAX_PIC_PIXELS;
+				terminal.numOfDendrites += MuonTeacherConst.MAX_PIC_PIXELS;
 			}
 		}
 			
 		iterator = terminal.postsynapticTerminals.iterator();
 		while (iterator.hasNext()) {
 			com.example.overmind.Terminal postsynapticTerminal = (com.example.overmind.Terminal) iterator.next();
-			if (postsynapticTerminal.natPort == Constants.APP_UDP_PORT &
+			if (postsynapticTerminal.natPort == MuonTeacherConst.APP_UDP_PORT &
 					postsynapticTerminal.ip.equals(terminal.serverIP)) {
 				connectionFound = true;
 				iterator.remove();

@@ -32,7 +32,7 @@ public class CandidatePicsReceiver extends Thread {
        
         /* Build the TCP socket */       		
 		try {
-			serverSocket = new ServerSocket(Constants.MUON_DETECTOR_SERVER_PORT);
+			serverSocket = new ServerSocket(MuonTeacherConst.MUON_DETECTOR_SERVER_PORT);
 		} catch (IOException e) {
         	e.printStackTrace();
 		}		
@@ -46,7 +46,7 @@ public class CandidatePicsReceiver extends Thread {
 			/* Accept connections from the socket and read the Candidate objects from them */
 			try {				
 				clientSocket = serverSocket.accept(); // Accept connection. Blocking operation.
-				clientSocket.setTrafficClass(Constants.IPTOS_RELIABILITY);
+				clientSocket.setTrafficClass(MuonTeacherConst.IPTOS_RELIABILITY);
 				socketInputStream = new ObjectInputStream(clientSocket.getInputStream()); // Establish a stream from which the object can be read
 				cachedThreadPoolExecutor.execute(new TerminalListener(socketInputStream)); // Create a thread which listens for incoming pics from the connected terminal
 			} catch (IOException e) {
@@ -128,13 +128,13 @@ public class CandidatePicsReceiver extends Thread {
 			/* Save a different directory path in the string depending on the particle tag */
 			String tagDirectoryPath = ""; 
 			switch (tag) {
-				case Constants.UNDETERMINED:
+				case MuonTeacherConst.UNDETERMINED:
 					tagDirectoryPath = "/resources/pics/untagged";
 					break;
-				case Constants.TRACK:
+				case MuonTeacherConst.TRACK:
 					tagDirectoryPath = "/resources/pics/tagged/track";
 					break;
-				case Constants.SPOT:
+				case MuonTeacherConst.SPOT:
 					tagDirectoryPath = "/resources/pics/tagged/spot";
 					break;
 			}

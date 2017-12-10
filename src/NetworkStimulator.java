@@ -58,7 +58,7 @@ public class NetworkStimulator {
 			return false;
 		}
 		
-		System.out.println("Stimulation length: " + (System.nanoTime() - stimulationStartTime) / Constants.NANO_TO_MILLS_FACTOR + " ms");
+		System.out.println("Stimulation length: " + (System.nanoTime() - stimulationStartTime) / MuonTeacherConst.NANO_TO_MILLS_FACTOR + " ms");
 		
 		return true;
 	}
@@ -74,6 +74,7 @@ public class NetworkStimulator {
 		private Node inputLayer;
 		private GrayscaleCandidate input;
 		private int deltaTime;
+		private SpikeInputCreator spikeInputCreator = new SpikeInputCreator();
 		
 		InputSender(int stimulationLength, int deltaTime, Node inputLayer, GrayscaleCandidate input) {
 			this.deltaTime = deltaTime;
@@ -88,7 +89,7 @@ public class NetworkStimulator {
 			DatagramSocket outputSocket = null;
 	        try {
 	    	    outputSocket = new DatagramSocket();
-	    	    outputSocket.setTrafficClass(Constants.IPTOS_THROUGHPUT);   
+	    	    outputSocket.setTrafficClass(MuonTeacherConst.IPTOS_THROUGHPUT);   
 	        } catch (SocketException e) {
 	        	e.printStackTrace();
 	        }
@@ -108,7 +109,7 @@ public class NetworkStimulator {
 			for (int index = 0; index < numOfIterations; index++) {
 				long startingTime = System.nanoTime();				
 				
-				byte[] spikeInput = SpikeInputCreator.createFromLuminance(input.grayscalePixels);
+				byte[] spikeInput = spikeInputCreator.createFromLuminance(input.grayscalePixels);
 				
 				try {
 					DatagramPacket spikeInputPacket = new DatagramPacket(spikeInput, spikeInput.length, inetAddress, natPort);
@@ -117,7 +118,7 @@ public class NetworkStimulator {
 					e.printStackTrace();
 				}		
 				
-				while((System.nanoTime() - startingTime) / Constants.NANO_TO_MILLS_FACTOR < deltaTime) {
+				while((System.nanoTime() - startingTime) / MuonTeacherConst.NANO_TO_MILLS_FACTOR < deltaTime) {
 					// TODO: Use sleep instead and handle eventual interruptions.
 				}
 			}
