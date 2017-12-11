@@ -6,11 +6,17 @@ public class MuonTeacherConst {
     static final int SPOT = 3;
     
     /* Application constants */
-    static int STIMULATION_LENGTH = 2000; // Length in ms (real time) of the period during which the inputs are presented to the network.
-    static int DELTA_TIME = 10; 
-    static int PAUSE_LENGTH = 4000; 
-    static short MAX_PIC_PIXELS = 1024; // The maximum number of pixels a sample image can be made of.
-    static float MEAN_RATE_INCREMENT = 0.005f; // Inverse of the number of samples need to compute the mean firing rate.
+    static final int STIMULATION_LENGTH = 2000; // Length in ms (real time) of the period during which the inputs are presented to the network.
+    static final int DELTA_TIME = 10; 
+    static final int PAUSE_LENGTH = 4000; 
+    static final short MAX_PIC_PIXELS = 1024; // The maximum number of pixels a sample image can be made of.
+    static final float MEAN_RATE_INCREMENT = 0.005f; // Inverse of the number of samples need to compute the mean firing rate.
+    static final int MIN_ITERATIONS = 5; // Minimum number of times the same input can be presented to the network during learning. 
+    static final int MAX_ITERATIONS = 20;
+    static final float MAX_FACTOR = 1.5f; // Maximum multiplicative factor of the threshold for the delta between the firing rate vectors. 
+    static final float BASE_DELTA = 0.15f; // Default multiplicative factor.
+    static final float EXC_TO_INH_PERCT = 0.8f;
+    static final float INH_TO_EXC_PERCT = 0.6f;
     
     /* Network related constants */
 	static final int IPTOS_THROUGHPUT = 0x08;
