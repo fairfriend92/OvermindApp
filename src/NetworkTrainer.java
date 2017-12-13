@@ -45,10 +45,7 @@ public class NetworkTrainer {
 	// Constants local to this class.
 	private final byte UPDATE_WEIGHT = (byte)1;
 	private final byte DONT_UPDATE_WEIGHT = (byte)0;
-	
-	// Variables used to determine to which class the current input belongs.
-	private static volatile int tentativeClass = -1; // TODO: Should these two be atomic?
-	private static volatile float probability = 0.0f;
+	private final static int NO_INPUT = -1;
 	
 	// Flags that control the execution of the code
 	static boolean shutdown = false;
@@ -88,7 +85,7 @@ public class NetworkTrainer {
 			@Override
 			public void run() {
         		if (spikesPacket != null) {     			
-        			int ipHashCode = spikesPacket.getAddress().hashCode();          			
+        			int ipHashCode = (spikesPacket.getAddress().toString().substring(1) + "/" + spikesPacket.getPort()).hashCode();          			
         			int numOfNeurons = VirtualLayerManager.nodesTable.get(ipHashCode).terminal.numOfNeurons;         		
         		        			
           			float[] meanFiringRates = null;
@@ -143,7 +140,8 @@ public class NetworkTrainer {
 					}	
 															
 					if (workerThread != null) {
-						int ipHashCode = workerThread.spikesPacket.getAddress().hashCode();
+						int ipHashCode = (workerThread.spikesPacket.getAddress().toString().substring(1) + 
+								"/" + workerThread.spikesPacket.getPort()).hashCode();
 						Future<?> future = futuresMap.get(ipHashCode);
 						
 						// If a thread for the node corresponding to ipHashCode was created before,
@@ -213,11 +211,12 @@ public class NetworkTrainer {
         		        		
         		// Create a new Runnable to do any kind of post-processing on the spikes sent
         		// by the terminal.
-				try {
-					threadsDispatcherQueue.offer(new WorkerThread(spikesPacket, spikesBuffer), MuonTeacherConst.DELTA_TIME / 2, TimeUnit.MILLISECONDS);
-				} catch (InterruptedException e) {
-					e.printStackTrace();
-				}               		
+        		if (currentInputClass != NO_INPUT)
+					try {
+						threadsDispatcherQueue.offer(new WorkerThread(spikesPacket, spikesBuffer), MuonTeacherConst.DELTA_TIME / 2, TimeUnit.MILLISECONDS);
+					} catch (InterruptedException e) {
+						e.printStackTrace();
+					}               		
 	    	}
 	    	
 	    	/* Shutdown executor. */
@@ -354,7 +353,7 @@ public class NetworkTrainer {
 		thisApp.numOfNeurons = (short) MuonTeacherConst.MAX_PIC_PIXELS;
 		thisApp.numOfSynapses = Short.MAX_VALUE;
 		thisApp.numOfDendrites = 0;
-		thisApp.ip = CandidatePicsReceiver.serverIP;
+		thisApp.ip = Constants.USE_LOCAL_CONNECTION ? VirtualLayerManager.localIP : VirtualLayerManager.serverIP;
 		thisApp.natPort = MuonTeacherConst.APP_UDP_PORT;
 				
 		/*
@@ -650,7 +649,6 @@ public class NetworkTrainer {
     	for (GrayscaleCandidate candidate : grayscaleCandidates) {
         	int allowedIterations = 5;
 
-    		currentInputClass = candidate.particleTag;   		
     		boolean sampleAnalysisFinished = false;   		
         	Arrays.fill(inputCandidates, candidate); // In this implementation the inputs of the nodes are all the same.	        		    		
     		
@@ -666,17 +664,17 @@ public class NetworkTrainer {
     				oldFiringRateMap.put(excNode.physicalID, new float[excNode.terminal.numOfNeurons]);
     			}
     		}
-    		
-    		// Times the same input has been presented to the network. 
-    		int iteration = 0;
-    		
-    		float[] meanProbability = new float[5];    		
-    		
-    		long startPause = 0, endPause = 0;
-    			        	
+    		    		
+    		int iteration = 0, // Times the same input has been presented to the network. 
+    				guessedClass = -1; 
+    		float finalProbability = 0.0f; // Probability associated with the guessed class.     		
+    		float[] meanProbabilities = new float[5]; // Temporary probs.
+    		int[] meanSamples = new int[5]; // Number of samples used to average the temp probs. 
+    		    		    	    		    			        	
     		// Break the loop if the analysis has been interrupted or the application shutdown or 
     		// the sample has been thoroughly analyzed. 
         	while ( !analysisInterrupt.get() & !shutdown & !sampleAnalysisFinished) {
+        		currentInputClass = candidate.particleTag;   		
         		iteration++; 
         		
 	        	// Stimulate the input layers with the candidate grayscale map.
@@ -692,12 +690,14 @@ public class NetworkTrainer {
 	        	boolean trainingDone = false, sampleClassified = false;
 	        	
 	        	try {
-					Thread.sleep(MuonTeacherConst.PAUSE_LENGTH - (endPause - startPause) / MuonTeacherConst.NANO_TO_MILLS_FACTOR);
+					Thread.sleep(MuonTeacherConst.PAUSE_LENGTH);
 				} catch (InterruptedException e) {
 					Main.updateLogPanel("Stimulation interrupted during pause", Color.RED);
 					return ERROR_OCCURRED;
 				}  			
-	        		        	
+	        	
+	        	// TODO: Where to put NO_INPUT?
+	        	
 	        	// Pick up a random node to gauge the progression of the learning algorithm. 
 	        	int nodeID = Main.excNodes.get(0).physicalID; // TODO: Do the same thing for every excitatory node. 
 	        	int numOfNeurons = Main.excNodes.get(0).terminal.numOfNeurons;
@@ -717,31 +717,67 @@ public class NetworkTrainer {
     				// Compute the distance between untaggedFiringRates and the class specific firing rate vectors.
     				for (int neuronIndex = 0; neuronIndex < numOfNeurons; neuronIndex++) {
     					for (int classIndex = 0; classIndex < 5; classIndex++) 
-    						Math.pow(taggedFiringRates[classIndex][neuronIndex] - untaggedFiringRate[neuronIndex], 2);
-    				}
+    						distances[classIndex] +=
+    						(float)Math.pow(taggedFiringRates[classIndex][neuronIndex] - untaggedFiringRate[neuronIndex], 2);
+    				}    			
     				
-    				float probNorm = 0, tentativeMaxProb = 0;
+    				/*
+    				 * Compute which class best describes the current input and the probability related
+    				 * to the guess. 
+    				 * 
+    				 * If the input has been presented a number of times < allowedIterations, then keep 
+    				 * track of how many times each one of the classes is associated with the input and the probability
+    				 * with which that happens every time. 
+    				 * Otherwise compute the final probability by averaging over the probabilities with which every 
+    				 * class has been associated with the input at every iteration. 
+    				 */
     				
-    				for (int i = 0; i < 5; i++) {    
-    					if (i == 1 | i == 3) { // TODO: Temporary solution. Training set should have inputs of all the classes.
-	        				distances[i] = (float) Math.sqrt(distances[i] / numOfNeurons);
-	        				meanProbability[i] += 1 - distances[i];
-	        				
-	        				// The tentative class is determined and the overall probability is computed.
-	        				if (iteration >= allowedIterations) {
-	        					sampleClassified = true;
-		        				probNorm += meanProbability[i] / allowedIterations;
-		        				if (meanProbability[i] > tentativeMaxProb) {
-		        					tentativeMaxProb = meanProbability[i];
-		        					tentativeClass = i;
-		        					probability = meanProbability[i] / allowedIterations;
-		        				}
-	        				}
+    				if (iteration < allowedIterations) {
+	    				float minDistance = distances[0], totalDistance = 0.0f;    		
+	    				int tentativeClass = -1;
+	    				
+	    				// Compute which of the class firing rate vectors is closer to the one produced.
+	    				for (int classIndex = 0; classIndex < 5; classIndex++) {  
+	    					if (classIndex == 1 | classIndex == 3) { // TODO: Temp solution until we use more pictures from all the classes. 
+		    					totalDistance += distances[classIndex];
+		    					if (distances[classIndex] < minDistance) {
+		    						minDistance = distances[classIndex];
+		    						tentativeClass = classIndex;
+		    					}
+	    					}
+	    				}    
+	    				
+	    				// The probability with which the guess has been made. 
+	    				meanProbabilities[tentativeClass] += 1 - minDistance / totalDistance;
+	    				meanSamples[tentativeClass]++; // How many times the same class has been associated with the input. 
+    				} else {
+    					float maxProbability = meanProbabilities[0];
+    					int tentativeClass = -1;
+    					
+    					// Compute which probability is the higher among the different classes. 
+    					for (int classIndex = 0; classIndex < 5; classIndex++) {
+    						if (classIndex == 1 | classIndex == 3) {
+	    						if (meanProbabilities[classIndex] > maxProbability) {
+	    							maxProbability = meanProbabilities[classIndex];
+	    							tentativeClass = classIndex;
+	    						}
+    						}
     					}
-    				}    
-    				
-    				probability /= probNorm;
-	        		
+    					
+    					maxProbability /= meanSamples[tentativeClass];
+    					sampleClassified = true;
+    					finalProbability = maxProbability;
+    					guessedClass = tentativeClass;
+    					/*
+    					if (maxProbability > 0.9f | allowedIterations == MuonTeacherConst.MAX_ITERATIONS) {
+    						sampleClassified = true;
+	    					finalProbability = maxProbability;
+	    					guessedClass = tentativeClass;
+    					} else {
+    						allowedIterations += 5;
+    					}
+    					*/
+    				}
 	        	} else {	     	
 	        		// Compute how much the prototype firing rate vector for the current class 
 		        	// and the chosen node has changed.
@@ -774,7 +810,6 @@ public class NetworkTrainer {
 		        			allowedIterations = allowedIterations + 5 < MuonTeacherConst.MAX_ITERATIONS ?
 		        					allowedIterations + 5 : MuonTeacherConst.MAX_ITERATIONS;
 		        		} else { // If not, iterate over the same input a higher number of times. 
-			        		iteration = 0;
 		        			deltaFactor = deltaFactor + 0.1f < MuonTeacherConst.MAX_FACTOR ?
 		        					deltaFactor + 0.1f : MuonTeacherConst.MAX_FACTOR;
 		        		}
@@ -787,12 +822,13 @@ public class NetworkTrainer {
     		}
         	
         	totalGuess++;
-        	if (tentativeClass == currentInputClass) {
+        	if (guessedClass == currentInputClass) {
         		rightGuess++;        		
         	}
         	
         	if (!isTrainingSession)
-        		System.out.println("Real class: " + candidate.particleTag + " Tentative class: " + tentativeClass + " Success rate: " + (rightGuess / totalGuess));
+        		System.out.println("Real class: " + candidate.particleTag + " Tentative class: " + guessedClass 
+        				+ " finalProbability " + finalProbability + " Success rate: " + (rightGuess / totalGuess));
         }   	
     	  	
    	

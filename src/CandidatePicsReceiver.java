@@ -11,7 +11,6 @@ import java.util.concurrent.Executors;
 
 public class CandidatePicsReceiver extends Thread {
 	
-	static String serverIP = null;
 	boolean shutdown = false;
 	static ExecutorService cachedThreadPoolExecutor = Executors.newCachedThreadPool(); 
 	ServerSocket serverSocket = null;
@@ -19,17 +18,7 @@ public class CandidatePicsReceiver extends Thread {
 	@Override
 	public void run() {
 		super.run();
-		
-		// TODO: Server IP could be retrieved from the OvermindServer interface.
-					
-		/* Get this server IP */
-        try (java.util.Scanner s = new java.util.Scanner(new java.net.URL("https://api.ipify.org").openStream(), "UTF-8").useDelimiter("\\A")) {
-            serverIP = s.next();
-        } catch (java.io.IOException e) {
-        	e.printStackTrace();
-        }        
-        assert serverIP != null;        
-       
+          
         /* Build the TCP socket */       		
 		try {
 			serverSocket = new ServerSocket(MuonTeacherConst.MUON_DETECTOR_SERVER_PORT);
