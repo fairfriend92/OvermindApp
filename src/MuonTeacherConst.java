@@ -6,14 +6,19 @@ public class MuonTeacherConst {
     static final int SPOT = 3;
     
     /* Application constants */
-    static final int STIMULATION_LENGTH = 2000; // Length in ms (real time) of the period during which the inputs are presented to the network.
-    static final int DELTA_TIME = 10; 
-    static final int PAUSE_LENGTH = 4000; 
+    static final int DELTA_TIME = 15; 
+    static final int STIMULATION_LENGTH_SIM_TIME = 100; // Length in simulation time of the stimulation period. 
+    static final int PAUSE_LENGTH_SIM_TIME = 200;
+    static final float DELTA_TIME_SIM = 0.5f;
+    static final float STIMULATION_LENGTH = 
+    		STIMULATION_LENGTH_SIM_TIME * DELTA_TIME / DELTA_TIME_SIM; // Length in ms (real time) of the period during which the inputs are presented to the network.
+    static final float PAUSE_LENGTH = 2 * STIMULATION_LENGTH; 
     static final short MAX_PIC_PIXELS = 1024; // The maximum number of pixels a sample image can be made of.
     static final float MEAN_RATE_INCREMENT = 0.005f; // Inverse of the number of samples need to compute the mean firing rate.
     static final int MIN_ITERATIONS = 5; // Minimum number of times the same input can be presented to the network during learning. 
     static final int MAX_ITERATIONS = 20;
     static final float MAX_FACTOR = 1.5f; // Maximum multiplicative factor of the threshold for the delta between the firing rate vectors. 
+    static final float MIN_FACTOR = 0.5f;
     static final float BASE_DELTA = 0.15f; // Default multiplicative factor.
     static final float EXC_TO_INH_PERCT = 0.8f;
     static final float INH_TO_EXC_PERCT = 0.6f;
@@ -25,7 +30,7 @@ public class MuonTeacherConst {
     static final int IPTOS_RELIABILITY = 0x04;
     
     /* Math constants */
-    static final int NANO_TO_MILLS_FACTOR = 1000000;
+    static final int MILLS_TO_NANO_FACTOR = 1000000;
     static final float MIN_WEIGHT = 0.0078f;
     static final int SIZE_OF_FLOAT = 4;
     static final int SIZE_OF_BYTE = 1;

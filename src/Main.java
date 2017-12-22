@@ -287,7 +287,7 @@ public class Main {
 					updateLogPanel("Node added to exc. nodes.", Color.BLACK); 
 					
 					// Prevent the user from stimulating the terminal.
-					selectedNode.terminalFrame.noneRadioButton.doClick();
+					//selectedNode.terminalFrame.noneRadioButton.doClick();
 					selectedNode.terminalFrame.randomSpikesRadioButton.setEnabled(false);
 					selectedNode.terminalFrame.refreshSignalRadioButton.setEnabled(false);
 					selectedNode.isExternallyStimulated = true;

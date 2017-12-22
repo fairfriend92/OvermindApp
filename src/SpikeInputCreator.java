@@ -41,7 +41,7 @@ public class SpikeInputCreator {
 			int byteIndex = index / 8;
 			
 			// Set the bit corresponding to the current pixel or synapse
-			if (luminance < randomLuminance) {
+			if (randomLuminance > luminance) {				
 				if (waitARP[index] == 0) { // A spike can be emitted only after the absolute refractory period has elapsed.
 					spikeInput[byteIndex] |= (1 << index - byteIndex * 8);
         			waitARP[index] = (int) (Constants.ABSOLUTE_REFRACTORY_PERIOD / Constants.SAMPLING_RATE);  
