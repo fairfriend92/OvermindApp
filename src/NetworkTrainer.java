@@ -538,6 +538,41 @@ public class NetworkTrainer {
 		return OPERATION_SUCCESSFUL;
 	}
 	
+	/**
+	 * Method which set the flags of the excitatory nodes so that no further 
+	 * learning takes place. 
+	 * @return true if no error occurred, false is the sending of the updated 
+	 * terminal info was interrupted. 
+	 */
+	
+	boolean stopLearning() {
+		final boolean STREAM_INTERRUPTED = false;
+		final boolean OPERATION_SUCCESSFUL = true;
+		
+		for (Node excNode : Main.excNodes) {
+			int activeSynPerNeuron = excNode.originalNumOfSynapses - excNode.terminal.numOfDendrites;
+			int sparseArrayLength = activeSynPerNeuron * excNode.terminal.numOfNeurons;
+			byte[] updateWeightsFlags = new byte[sparseArrayLength]; // Default value for the bit is unset. 		
+						
+			excNode.terminal.updateWeightsFlags = updateWeightsFlags;			
+			VirtualLayerManager.unsyncNodes.add(excNode);		
+		}
+		
+		Future<Boolean> future = VirtualLayerManager.syncNodes();		
+		try {
+			Boolean syncSuccessful = future.get();
+			if (!syncSuccessful) {
+				Main.updateLogPanel("Weights update interrupted", Color.RED);
+				return STREAM_INTERRUPTED;
+			}
+		} catch (InterruptedException | ExecutionException e) {
+			Main.updateLogPanel("Weights update interrupted", Color.RED);
+			return STREAM_INTERRUPTED;
+		}
+		
+		return OPERATION_SUCCESSFUL;
+	}
+	
 	boolean classifyInput(boolean isTrainingSession)  {	
 		final boolean ERROR_OCCURRED = false;
 		final boolean OPERATION_SUCCESSFUL = true;				
@@ -605,6 +640,7 @@ public class NetworkTrainer {
         		fileInputStream = new FileInputStream(sampleSetFiles.get(i));
         		objectInputStream = new ObjectInputStream(fileInputStream);
         		GrayscaleCandidate grayscaleCandidate = (GrayscaleCandidate) objectInputStream.readObject();
+        		grayscaleCandidates[i] = grayscaleCandidate; // Unnecessary if the candidates must be ordered by class. Comment it out.        		
         		
         		// Add the last candidate to the ArrayList corresponding to its kind. 
         		candidatesCollections.get(grayscaleCandidate.particleTag).add(grayscaleCandidate);
@@ -617,7 +653,8 @@ public class NetworkTrainer {
          * Copy the candidates in one single array in a way so that candidates of 
          * the same kind are adjacent.
          */
-        
+                
+        /*
         int offset = 0;
         for (int i = 0; i < 5; i++) {
         	// The single collection of candidates of class i. 
@@ -626,7 +663,8 @@ public class NetworkTrainer {
         	
         	System.arraycopy(candidatesCollection, 0, grayscaleCandidates, offset, candidatesCollections.get(i).size());
         	offset += candidatesCollections.get(i).size();
-        }
+        }    
+        */    
         
         /*
          * Send the retrieved grayscale candidates to the network.
@@ -699,9 +737,8 @@ public class NetworkTrainer {
 	        	 * have been sent so that there is still time to do a little bit of post-processing. 
 	        	 */
 	        	
-	        	System.out.println("postprocessingTime " + postprocessingTime);
 	        	try {
-					Thread.sleep((long)(MuonTeacherConst.PAUSE_LENGTH + MuonTeacherConst.STIMULATION_LENGTH) - 2 * postprocessingTime);
+					Thread.sleep((long)(MuonTeacherConst.PAUSE_LENGTH + MuonTeacherConst.STIMULATION_LENGTH) - postprocessingTime);
 				} catch (InterruptedException e) {
 					Main.updateLogPanel("Stimulation interrupted during pause", Color.RED);
 					return ERROR_OCCURRED;
@@ -828,19 +865,19 @@ public class NetworkTrainer {
 		        	trainingDone = trainingDone | iteration == MuonTeacherConst.MAX_ITERATIONS;
 		        			        			        	
 		        	System.out.println("firingRateDelta " + firingRateDelta + " deltaFactor " + 
-		        	deltaFactor + " allowedIterations " + allowedIterations + " iteration " + iteration);      	
-		        	
-		        	// Wait for all the InputSender threads to finish by retrieving their Future objects.		
-		    		try {
-		    			for (Future<?> inputSenderFuture : inputSenderFutures)
-		    				inputSenderFuture.get();
-		    		} catch (InterruptedException | ExecutionException e) {
-		    			e.printStackTrace();
-		    			return false;
-		    		}		        	
+		        	deltaFactor + " allowedIterations " + allowedIterations + " iteration " + iteration);   
 	        	}	 
 	        	long tmpTime = (System.nanoTime() - postprocessingStartTime) / MuonTeacherConst.MILLS_TO_NANO_FACTOR;
-	        	postprocessingTime = tmpTime == 0 ? 1 : tmpTime;
+	        	postprocessingTime = tmpTime < MuonTeacherConst.DELTA_TIME ? MuonTeacherConst.DELTA_TIME  : tmpTime;
+	        	
+	        	// Wait for all the InputSender threads to finish by retrieving their Future objects.		
+	    		try {
+	    			for (Future<?> inputSenderFuture : inputSenderFutures)
+	    				inputSenderFuture.get();
+	    		} catch (InterruptedException | ExecutionException e) {
+	    			e.printStackTrace();
+	    			return false;
+	    		}		        	
 	        	
 	        	sampleAnalysisFinished = sampleClassified | trainingDone;
     		}
@@ -859,15 +896,28 @@ public class NetworkTrainer {
     	/* Shutdown operations */    	  
     	
     	// Shutdown worker threads
+    	boolean terminationSuccessful = true;
+    	
     	spikesReceiver.shutdown = true;
     	if (spikesReceiver.socket != null)
     		spikesReceiver.socket.close();
     	try {
-    		spikesReceiver.join();
+    		spikesReceiver.join(100);
     	} catch (InterruptedException e) {
+    		terminationSuccessful = false;
 			Main.updateLogPanel("spikesReceiver shutdown interrupted", Color.RED);
-			return ERROR_OCCURRED;
     	}
+    	
+    	networkStimulator.inputSenderService.shutdown();
+    	try {
+			terminationSuccessful &= networkStimulator.inputSenderService.awaitTermination(100, TimeUnit.MILLISECONDS);
+			if (!terminationSuccessful) {
+				Main.updateLogPanel("inputSenderService didn't shutdown in time", Color.RED);
+			}
+		} catch (InterruptedException e) {
+			terminationSuccessful = false;
+			Main.updateLogPanel("inputSenderService shutdown interrupted", Color.RED);
+		}
     	
     	// Clear hash maps.
     	Collection<DatagramSocket> socketsCollection = networkStimulator.socketsHashMap.values();
@@ -878,7 +928,7 @@ public class NetworkTrainer {
     	untaggedFiringRateMap.clear();   
     	oldFiringRateMap.clear();
           
-		return OPERATION_SUCCESSFUL;				
+		return terminationSuccessful;				
 	}
 	
 }

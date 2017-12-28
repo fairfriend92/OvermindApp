@@ -8,6 +8,7 @@ import java.util.ArrayList;
  */
 
 public class SpikeInputCreator {
+	float MAX_LUMINANCE = 63.75f;	
 	
 	private int[] waitARP = new int[MuonTeacherConst.MAX_PIC_PIXELS]; // Array holding counter indexes that account for the absolute refractory period.
 	
@@ -40,8 +41,13 @@ public class SpikeInputCreator {
 		for (float luminance : grayscalePixels) {
 			int byteIndex = index / 8;
 			
+			// Cut-off luminance to prevent neurons from firing continuously. 
+			//luminance *= MAX_LUMINANCE / 100.0f;
+			
 			// Set the bit corresponding to the current pixel or synapse
-			if (randomLuminance > luminance) {				
+			if (randomLuminance < luminance) {		
+				spikeInput[byteIndex] |= (1 << index - byteIndex * 8);
+				/*
 				if (waitARP[index] == 0) { // A spike can be emitted only after the absolute refractory period has elapsed.
 					spikeInput[byteIndex] |= (1 << index - byteIndex * 8);
         			waitARP[index] = (int) (Constants.ABSOLUTE_REFRACTORY_PERIOD / Constants.SAMPLING_RATE);  
@@ -50,7 +56,8 @@ public class SpikeInputCreator {
 					spikeInput[byteIndex] &= ~(1 << index - byteIndex * 8);
 				} else {
 					spikeInput[byteIndex] &= ~(1 << index - byteIndex * 8);
-				}
+				}	
+				*/			
 			}
 			
 			index++;

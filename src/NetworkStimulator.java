@@ -22,6 +22,9 @@ import java.util.concurrent.*;
 public class NetworkStimulator {
 	// Hash map used to store the sockets which send the inputs to the terminals.
 	ConcurrentHashMap<Integer, DatagramSocket> socketsHashMap = null;
+	
+	// Create a service for the threads that send the inputs to the respectinve input layers.
+	ExecutorService inputSenderService = null;
 		
 	/**
 	 * Send a luminance map as an input to the chosen input layers. 
@@ -35,13 +38,11 @@ public class NetworkStimulator {
 			return null;
 		}
 		
-		if (socketsHashMap == null) {
+		if (socketsHashMap == null | inputSenderService == null) {
 			socketsHashMap = new ConcurrentHashMap<>(inputLayers.length);
-		}
-		
-		// Create a service for the threads that send the inputs to the respectinve input layers.
-		ExecutorService inputSenderService = Executors.newFixedThreadPool(inputs.length);
-		
+			inputSenderService = Executors.newFixedThreadPool(inputs.length);
+		}		
+				
 		// List of future objects used to signal when an inputSender thread is done.
 		ArrayList<Future<?>> inputSenderFutures = new ArrayList<Future<?>>(inputs.length);
 		

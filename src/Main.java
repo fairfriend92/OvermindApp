@@ -256,8 +256,12 @@ public class Main {
 						@Override
 						public void run() {
 							super.run();
+							boolean operationSuccessful = true;
 							
-							boolean operationSuccessful = networkTrainer.classifyInput(false);
+							operationSuccessful &= networkTrainer.stopLearning();
+							if (operationSuccessful)							
+								operationSuccessful = networkTrainer.classifyInput(false);
+							
 							if (!operationSuccessful) {
 								resetNetwork();
 								enablePanel();

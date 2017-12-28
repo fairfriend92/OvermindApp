@@ -108,7 +108,7 @@ public class CandidatePicsReceiver extends Thread {
 				else if (blue == 0)
 					grayscalePixels[i] = 0.44f + (float)green / 255 * 0.44f;
 				else
-					grayscalePixels[i] = 0.88f + (float)blue / 255 * 0.12f;			
+					grayscalePixels[i] = 0.88f + (float)blue / 255 * 0.12f;	
 			}		
 			
 			// Save the map and the tag
