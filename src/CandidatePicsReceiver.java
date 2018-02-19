@@ -126,6 +126,9 @@ public class CandidatePicsReceiver extends Thread {
 				case MuonTeacherConst.SPOT:
 					tagDirectoryPath = "/resources/pics/tagged/spot";
 					break;
+				case MuonTeacherConst.NOISE:
+					tagDirectoryPath = "/resources/pics/tagged/noise";
+					break;
 			}
 			
 			// Get the directory where to save the pic 

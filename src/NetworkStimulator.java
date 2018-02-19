@@ -1,6 +1,7 @@
 import java.awt.Color;
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.net.DatagramPacket;
@@ -20,6 +21,46 @@ import java.util.concurrent.*;
  */
 
 public class NetworkStimulator {
+	
+	private byte[] noiseInput = new byte[MuonTeacherConst.MAX_PIC_PIXELS];
+	private SpikeInputCreator spikeInputCreator = new SpikeInputCreator();
+	
+	/*
+	 * When the class is instantiated create an input array from a picture containing
+	 * only noise and no trace. 
+	 */
+	
+	NetworkStimulator() {
+		String path = new File("").getAbsolutePath();
+		path = path.concat("/resources/pics/tagged/noise");
+		File noiseDir = new File(path);
+		ArrayList<File> noiseFiles = new ArrayList<>(Arrays.asList(noiseDir.listFiles()));
+		
+		// Delete unwanted files that may have been included. 
+		Iterator<File> iterator = noiseFiles.iterator();
+		while (iterator.hasNext()) {
+			File file = iterator.next();
+			if (file.getName().equals(".gitignore"))
+				iterator.remove();
+		}
+				
+		if (noiseFiles.size() == 0 | noiseFiles == null) {
+			Main.updateLogPanel("Noise sample not found", Color.RED);			
+		} else {		
+			System.out.println("test");
+			
+			// Any of the noise picture is fine, so take the first one in the array. 
+			try {
+				FileInputStream fileInputStream = new FileInputStream(noiseFiles.get(0));
+				ObjectInputStream objectInputStream = new ObjectInputStream(fileInputStream); 
+				GrayscaleCandidate noiseCandidate = (GrayscaleCandidate) objectInputStream.readObject();
+				noiseInput = spikeInputCreator.createFromLuminance(noiseCandidate.grayscalePixels);
+			} catch (IOException | ClassNotFoundException e) {
+				e.printStackTrace();
+			} 
+		}
+	}
+	
 	// Hash map used to store the sockets which send the inputs to the terminals.
 	ConcurrentHashMap<Integer, DatagramSocket> socketsHashMap = null;
 	
@@ -69,7 +110,6 @@ public class NetworkStimulator {
 		private Node inputLayer;
 		private GrayscaleCandidate input;
 		private float deltaTime;
-		private SpikeInputCreator spikeInputCreator = new SpikeInputCreator();
 		
 		InputSender(float stimulationLength, float pauseLength, float deltaTime, Node inputLayer, GrayscaleCandidate input) {
 			this.deltaTime = deltaTime;
@@ -105,11 +145,6 @@ public class NetworkStimulator {
 			assert inetAddress != null;
 	        int natPort = inputLayer.terminal.natPort;
 	        
-	        // Dummy input made carrying no info used sent during the pause to 
-	        // keep the clock alive. 
-	        float[] dummyInput = new float[MuonTeacherConst.MAX_PIC_PIXELS];
-			Arrays.fill(dummyInput, 1.0f);
-	        
 	        // Send a new input, Poisson distributed, to the node every deltaTime
 	        // for a total of numOfIterations times. 
 			for (int index = 0; index < stimulationIterations + pauseIterations; index++) {
@@ -117,7 +152,7 @@ public class NetworkStimulator {
 				
 				byte[] spikeInput = index < stimulationIterations ? 
 						spikeInputCreator.createFromLuminance(input.grayscalePixels) : 
-							spikeInputCreator.createFromLuminance(dummyInput);
+							noiseInput;
 				
 				try {
 					DatagramPacket spikeInputPacket = new DatagramPacket(spikeInput, spikeInput.length, inetAddress, natPort);

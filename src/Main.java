@@ -6,8 +6,14 @@ import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.image.BufferedImage;
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Iterator;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
@@ -43,8 +49,9 @@ public class Main {
 	private static JButton removeNodeFromExc = new JButton("Remove");
 	private static JButton removeNodeFromInh = new JButton("Remove");
 	private static JButton trainNetwork = new JButton("Train");
-	private static boolean isTraining = false; // Flag that tells if the train button has been pressed and if the network is being trained. 
 	private static JButton analyzeSamples = new JButton("Analyze");
+	private static JButton storeWeights = new JButton("Store weights");
+	private static JButton loadWeights = new JButton("Load weights");
 	
 	/* List models */
 	
@@ -67,6 +74,7 @@ public class Main {
 	/* Other objects */
 	
 	private static boolean networkWasTrained = false;
+	private static boolean isTraining = false; // Flag that tells if the train button has been pressed and if the network is being trained. 
 
 	public static void main(String[] args) {
 		MainFrame.main(args); // Start the Overmind server. 
@@ -130,12 +138,14 @@ public class Main {
 		
 		/* Commands panel */
 		
-		commandsPanel.setLayout(new GridLayout(2, 1));
+		commandsPanel.setLayout(new GridLayout(4, 1));
 		commandsPanel.setBorder(BorderFactory.createCompoundBorder(
 				BorderFactory.createTitledBorder("Commands"),
 				BorderFactory.createEmptyBorder(5,5,5,5)));
 		commandsPanel.add(trainNetwork);
 		commandsPanel.add(analyzeSamples);
+		commandsPanel.add(storeWeights);
+		commandsPanel.add(loadWeights);
 		
 		/* Log panel */
 		
@@ -215,9 +225,229 @@ public class Main {
 								super.run();
 								boolean operationSuccessful = true; 
 								
-								operationSuccessful &= networkTrainer.checkTopology();							
+								operationSuccessful &= networkTrainer.checkTopology();
+								if (operationSuccessful) 
+									operationSuccessful &= networkTrainer.setupLoadWeights();								
 								if (operationSuccessful)
 									operationSuccessful &= networkTrainer.setSynapticWeights(); 
+								if (operationSuccessful) {
+									trainNetwork.setEnabled(true);
+									trainNetwork.setText("Stop");
+									operationSuccessful &= networkTrainer.classifyInput(true);
+								}
+								if (operationSuccessful)
+									operationSuccessful &= networkTrainer.stopLearning();
+																				
+								if (!operationSuccessful) {
+									resetNetwork();
+								} else {								
+									networkWasTrained = true;
+									updateLogPanel("Training completed", Color.BLACK);
+								}
+								
+								isTraining = false;
+								trainNetwork.setText("Train");
+								enablePanel();
+							}
+						};
+						networkTrainerThread.start();						
+					}
+				} else {
+					NetworkTrainer.analysisInterrupt.set(true);
+				}
+			}
+		});
+		
+		analyzeSamples.addActionListener(new ActionListener() {
+			@Override
+			public void actionPerformed(ActionEvent arg0) {
+				if (!networkWasTrained) {
+					updateLogPanel("Train the network first", Color.RED);
+				} else {
+					disablePanel();
+					
+					analyzerThread = new Thread() {
+						@Override
+						public void run() {
+							super.run();
+							boolean operationSuccessful = true;
+							
+						    operationSuccessful &= networkTrainer.classifyInput(false);
+							
+							if (!operationSuccessful) {
+								resetNetwork();
+								enablePanel();
+							} else {								
+								enablePanel();
+								updateLogPanel("Analysis completed", Color.BLACK);
+							}
+						}
+					};
+					analyzerThread.start();
+				}
+			}			
+		});
+		
+		storeWeights.addActionListener(new ActionListener() { 
+			@Override
+			public void actionPerformed(ActionEvent arg0) {
+				if (networkWasTrained) {
+					WeightsFile weightsFile = new WeightsFile(excNodes, inhNodes);
+					String absolutePath = new File("").getAbsolutePath();
+					String weightsPath = absolutePath.concat("/resources/weights");
+					File weightsDirectory = new File(weightsPath);
+					try {
+						File tempWeightsFile = File.createTempFile("tmpName", ".wght", weightsDirectory);
+						FileOutputStream fileOutputStream = new FileOutputStream(tempWeightsFile); 
+						ObjectOutputStream objectOutputStream = new ObjectOutputStream(fileOutputStream); 
+						objectOutputStream.writeObject(weightsFile);					
+						fileOutputStream.close();
+						objectOutputStream.close();
+					} catch (IOException e) {
+						e.printStackTrace();
+					} 
+					updateLogPanel("Weights stored", Color.BLACK);
+				} else {
+					updateLogPanel("Train network first", Color.RED);
+				}
+			}
+				
+		});
+		
+		loadWeights.addActionListener(new ActionListener() { 
+			@Override
+			public void actionPerformed(ActionEvent arg0) {
+				// Get the files storing all the weights previously saved.
+				String absolutePath = new File("").getAbsolutePath();
+				String weightsPath = absolutePath.concat("/resources/weights");
+				File weightsDir = new File(weightsPath);
+				File[] weightsFiles = weightsDir.listFiles();
+				
+				if (weightsFiles.length == 0 | weightsFiles == null) {
+					updateLogPanel("No weights to load", Color.RED);
+				} else {
+					// Order the Files by their names.
+				 	Arrays.sort(weightsFiles);
+				 	boolean rightWeightsFound = false;
+				 	
+				 	// Look for a file with the right combination of weights for the current nodes.
+				 	for (File tmpWeightsFile : weightsFiles) {
+						try {
+							// Get the WeightsFile object.
+							FileInputStream fileInputStream = new FileInputStream(tmpWeightsFile);
+							ObjectInputStream objectInputStream = new ObjectInputStream(fileInputStream);
+			        		WeightsFile weightsFile = (WeightsFile)objectInputStream.readObject();
+			        		
+			        		// Check that the number of nodes whose weights were stored equals that of 
+			        		// the nodes that constitute the current network. 
+			        		boolean conditionsSatisfied = true;
+			        		conditionsSatisfied &= weightsFile.excNodesWeights.length == excNodes.size();
+			        		conditionsSatisfied &= weightsFile.inhNodesWeights.length == inhNodes.size();
+			        		
+			        		if (conditionsSatisfied) {
+			        			// Was it possible to find the right weights for the excitatory and the inhibitory nodes?
+		        				boolean excNodeWeightsFound = true, inhNodeWeightsFound = true;
+		        				
+		        				/*
+		        				 * Each set of weights is characterized by the number of neurons and synapses of the 
+		        				 * node they belonged too. For each of the current nodes, find a set with the right
+		        				 * characteristics. 
+		        				 */		        					        			
+		        				
+			        			for (int i = 0; i < excNodes.size(); i++) {
+			        				Node excNode = excNodes.get(i); // Current node.
+			        				boolean weightsFound = false; // Weights compatible with the current node were found?
+			        				
+			        				// Search among the set of weights stored in the current weights file. 
+			        				for (int j = 0; j < weightsFile.excNodesWeights.length; j++) {
+			        					
+			        					/*
+			        					 * The equals method of NodeWeights compare both the number of synapses and the 
+			        					 * number of neurons of the node being passed with those stored by NodeWeights
+			        					 * itself. 
+			        					 */
+			        					
+			        					if (weightsFile.excNodesWeights[j].equals(excNode)) {
+			        						excNode.terminal.newWeights = weightsFile.excNodesWeights[j].weights;
+			        						excNode.terminal.newWeightsIndexes = new int[] {0};
+			        										
+			        						VirtualLayerManager.unsyncNodes.add(excNode);
+			        						weightsFound = true;
+			        					}
+			        				}			        				
+			        				excNodeWeightsFound &= weightsFound;
+			        			}
+			        			
+			        			/*
+			        			 * Just like above, but now for the inhibitory nodes.
+			        			 */
+			        			
+			        			for (int i = 0; i < inhNodes.size(); i++) {
+			        				Node inhNode = inhNodes.get(i); 
+			        				boolean weightsFound = false; 
+			        				
+			        				for (int j = 0; j < weightsFile.inhNodesWeights.length; j++) {
+			        					if (weightsFile.inhNodesWeights[j].equals(inhNode)) {
+			        						inhNode.terminal.newWeights = weightsFile.inhNodesWeights[j].weights;
+			        						inhNode.terminal.newWeightsIndexes = new int[] {0};
+			        										
+			        						VirtualLayerManager.unsyncNodes.add(inhNode);
+			        						weightsFound = true;
+			        					}
+			        				}			        				
+			        				inhNodeWeightsFound &= weightsFound;
+			        			}
+			        		
+			        			rightWeightsFound = excNodeWeightsFound & inhNodeWeightsFound;
+			        		}
+			        		/* [End of if (conditionsSatsfied)] */
+			        		
+						} catch (ClassNotFoundException | IOException e) {
+							e.printStackTrace();
+						}	
+						
+						if (rightWeightsFound) break;
+				 	}
+				 	/* [End of for (File tmpWeightsFile : weightsFiles)] */
+				 	
+				 	if (rightWeightsFound) {
+						updateLogPanel("Weights loaded", Color.BLACK);
+						
+						Future<Boolean> future = VirtualLayerManager.syncNodes();
+						// Wait for the synchronization process to be completed before proceeding.
+						try {
+							Boolean syncSuccessful = future.get();
+							if (!syncSuccessful)
+								Main.updateLogPanel("Weights update interrupted", Color.RED);
+						} catch (InterruptedException | ExecutionException e) {
+							Main.updateLogPanel("Weights update interrupted", Color.RED);
+						}
+						
+						/*
+						 * Once the weights have been loaded, the stereotypical firing rate vectors must
+						 * be built again using the response of the network now that the weights have
+						 * changed.
+						 */
+						
+						disablePanel(); 
+						isTraining = true;
+						networkTrainerThread = new Thread() {
+							
+							/*
+							 * Just like when the training button is pressed, but the weights are not
+							 * randomized. 
+							 * (non-Javadoc)
+							 * @see java.lang.Thread#run()
+							 */
+							
+							@Override
+							public void run () {
+								super.run();
+								boolean operationSuccessful = true; 
+								
+								operationSuccessful &= networkTrainer.checkTopology();	
+								if (operationSuccessful) 
+									operationSuccessful &= networkTrainer.setupLoadWeights();								
 								if (operationSuccessful) {
 									trainNetwork.setEnabled(true);
 									trainNetwork.setText("Stop");
@@ -237,43 +467,12 @@ public class Main {
 							}
 						};
 						networkTrainerThread.start();						
-					}
-				} else {
-					NetworkTrainer.analysisInterrupt.set(true);;
+				 	} else {
+						updateLogPanel("No right weights for the nodes", Color.RED);
+				 	}
 				}
+				/* [End of if (weightsFiles.length == 0 | weightsFiles == null)] */
 			}
-		});
-		
-		analyzeSamples.addActionListener(new ActionListener() {
-			@Override
-			public void actionPerformed(ActionEvent arg0) {
-				if (!networkWasTrained) {
-					updateLogPanel("Train the network first", Color.RED);
-				} else {
-					disablePanel();
-					
-					analyzerThread = new Thread() {
-						@Override
-						public void run() {
-							super.run();
-							boolean operationSuccessful = true;
-							
-							operationSuccessful &= networkTrainer.stopLearning();
-							if (operationSuccessful)							
-								operationSuccessful = networkTrainer.classifyInput(false);
-							
-							if (!operationSuccessful) {
-								resetNetwork();
-								enablePanel();
-							} else {								
-								enablePanel();
-								updateLogPanel("Analysis completed", Color.BLACK);
-							}
-						}
-					};
-					analyzerThread.start();
-				}
-			}			
 		});
 		
 		addNodeToExc.addActionListener(new ActionListener() {
@@ -487,6 +686,8 @@ public class Main {
         		tag = MuonTeacherConst.TRACK;
         	else if (fileName.contains("spot"))
         		tag = MuonTeacherConst.SPOT;
+        	else if (fileName.contains("nois"))
+        		tag = MuonTeacherConst.NOISE;
         	else {
         		fileNameIsValid = false;
         		System.out.println("" + fileName + " is not a valid file name.");
@@ -613,6 +814,8 @@ public class Main {
 	 * Disable all the commands of the panel.
 	 */
 	
+	// TODO: Unify the following two methods into one that takes as argument a boolean.
+	
 	private static void disablePanel() {
 		addNodeToExc.setEnabled(false);
 		addNodeToInh.setEnabled(false);
@@ -620,6 +823,8 @@ public class Main {
 		removeNodeFromInh.setEnabled(false);
 		trainNetwork.setEnabled(false);
 		analyzeSamples.setEnabled(false);
+		loadWeights.setEnabled(false);
+		storeWeights.setEnabled(false);
 		
 		mainPanel.repaint();
 		mainPanel.revalidate();
@@ -636,6 +841,8 @@ public class Main {
 		removeNodeFromInh.setEnabled(true);
 		trainNetwork.setEnabled(true);
 		analyzeSamples.setEnabled(true);
+		loadWeights.setEnabled(true);
+		storeWeights.setEnabled(true);
 		
 		mainPanel.repaint();
 		mainPanel.revalidate();

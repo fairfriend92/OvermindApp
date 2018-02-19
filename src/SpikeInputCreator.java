@@ -56,8 +56,8 @@ public class SpikeInputCreator {
 					spikeInput[byteIndex] &= ~(1 << index - byteIndex * 8);
 				} else {
 					spikeInput[byteIndex] &= ~(1 << index - byteIndex * 8);
-				}	
-				*/			
+				}		
+				*/				
 			}
 			
 			index++;
