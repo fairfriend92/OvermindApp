@@ -8,9 +8,9 @@ public class MuonTeacherConst {
     static final int NUM_OF_PARTICLES_TYPES = 2;
     
     /* Application constants */
-    static final int DELTA_TIME = 20; 
+    static final int DELTA_TIME = 10; 
     static final int STIMULATION_LENGTH_SIM_TIME = 100; // Length in simulation time of the stimulation period. 
-    static final int PAUSE_LENGTH_SIM_TIME = 100;
+    static final int PAUSE_LENGTH_SIM_TIME = 0;
     static final float DELTA_TIME_SIM = 0.5f;
     static final float STIMULATION_LENGTH = 
     		STIMULATION_LENGTH_SIM_TIME * DELTA_TIME / DELTA_TIME_SIM; // Length in ms (real time) of the period during which the inputs are presented to the network.
@@ -20,7 +20,7 @@ public class MuonTeacherConst {
     static final float MEAN_RATE_INCREMENT = 0.01f; // Inverse of the number of samples need to compute the mean firing rate.
     static final int MIN_ITERATIONS = 4; // Minimum number of times the same input can be presented to the network during learning. 
     static final int MAX_ITERATIONS = 8;
-    static final int ITERATION_INCREMENT = 4;
+    static final int ITERATION_INCREMENT = 2;
     static final float MAX_FACTOR = 1.5f; // Maximum multiplicative factor of the threshold for the delta between the firing rate vectors. 
     static final float MIN_FACTOR = 0.5f;
     static final float BASE_DELTA = 0.15f; // Default multiplicative factor.

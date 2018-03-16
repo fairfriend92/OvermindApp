@@ -8,7 +8,7 @@ import java.util.ArrayList;
  */
 
 public class SpikeInputCreator {
-	float MAX_LUMINANCE = 63.75f;	
+	float MAX_LUMINANCE = 63.75f;		
 	
 	private int[] waitARP = new int[MuonTeacherConst.MAX_PIC_PIXELS]; // Array holding counter indexes that account for the absolute refractory period.
 	
@@ -18,7 +18,7 @@ public class SpikeInputCreator {
 	
 	// TODO: Implement refractoriness?
 	
-	public  byte[] createFromLuminance(float[] grayscalePixels) {
+	public  byte[] createFromLuminance(float[] grayscalePixels, boolean printValues) {
 		byte[] spikeInput;
 		short lengthInBytes; // How many bytes are needed to represent the spike input?
 		
@@ -41,6 +41,11 @@ public class SpikeInputCreator {
 		for (float luminance : grayscalePixels) {
 			int byteIndex = index / 8;
 			
+			/*
+			if (printValues & Main.isTraining)
+				System.out.println("" + luminance);
+			*/
+			
 			// Cut-off luminance to prevent neurons from firing continuously. 
 			//luminance *= MAX_LUMINANCE / 100.0f;
 			
@@ -60,37 +65,9 @@ public class SpikeInputCreator {
 				*/				
 			}
 			
-			index++;
-		}
+			index++;			
+		}		
 		
 		return spikeInput;
-	}
-	
-	/**
-	 * Compute the rate of firing of one or more spike trains. 
-	 * The rate is adimensional and should be divided by the time bin to 
-	 * get the dimensional one. 
-	 */
-	
-	public static float[] computeFiringRate(ArrayList<byte[]> spikeTrains, short numOfNeurons) {
-		float[] firingRates = new float[numOfNeurons];
-		
-		// Each element of the ArrayList is the spike input at a different time		
-		for (byte[] spikeInput : spikeTrains) { // Iterating over time
-			for (int index = 0; index < numOfNeurons; index++) { // Iterating over the the neurons that produced the spike trains
-				int byteIndex = index / 8;
-												
-				// If the current neuron had emitted a spike, increase the firing rate
-				firingRates[index] = ((spikeInput[byteIndex] >> (index - byteIndex * 8)) & 1) == 1 ? 
-						firingRates[index] + 1 : firingRates[index];
-			}
-		}
-		
-		// To get the firing rate divide the number of times the neurons have emitted a spike 
-		// for the length of the spike train
-		for (float firingRate : firingRates)
-			firingRate /= spikeTrains.size();
-		
-		return firingRates;
 	}
 }

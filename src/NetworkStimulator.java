@@ -22,8 +22,8 @@ import java.util.concurrent.*;
 
 public class NetworkStimulator {
 	
-	private byte[] noiseInput = new byte[MuonTeacherConst.MAX_PIC_PIXELS];
 	private SpikeInputCreator spikeInputCreator = new SpikeInputCreator();
+	private GrayscaleCandidate noiseCandidate = null;	
 	
 	/*
 	 * When the class is instantiated create an input array from a picture containing
@@ -47,14 +47,11 @@ public class NetworkStimulator {
 		if (noiseFiles.size() == 0 | noiseFiles == null) {
 			Main.updateLogPanel("Noise sample not found", Color.RED);			
 		} else {		
-			System.out.println("test");
-			
 			// Any of the noise picture is fine, so take the first one in the array. 
 			try {
 				FileInputStream fileInputStream = new FileInputStream(noiseFiles.get(0));
 				ObjectInputStream objectInputStream = new ObjectInputStream(fileInputStream); 
-				GrayscaleCandidate noiseCandidate = (GrayscaleCandidate) objectInputStream.readObject();
-				noiseInput = spikeInputCreator.createFromLuminance(noiseCandidate.grayscalePixels);
+				noiseCandidate = (GrayscaleCandidate) objectInputStream.readObject();
 			} catch (IOException | ClassNotFoundException e) {
 				e.printStackTrace();
 			} 
@@ -146,14 +143,14 @@ public class NetworkStimulator {
 	        int natPort = inputLayer.terminal.natPort;
 	        
 	        // Send a new input, Poisson distributed, to the node every deltaTime
-	        // for a total of numOfIterations times. 
+	        // for a total of numOfIterations times. 	        	        
 			for (int index = 0; index < stimulationIterations + pauseIterations; index++) {
 				long startingTime = System.nanoTime();				
 				
 				byte[] spikeInput = index < stimulationIterations ? 
-						spikeInputCreator.createFromLuminance(input.grayscalePixels) : 
-							noiseInput;
-				
+						spikeInputCreator.createFromLuminance(input.grayscalePixels, index == 0) : 
+							spikeInputCreator.createFromLuminance(new float[MuonTeacherConst.MAX_PIC_PIXELS], false);
+		
 				try {
 					DatagramPacket spikeInputPacket = new DatagramPacket(spikeInput, spikeInput.length, inetAddress, natPort);
 					outputSocket.send(spikeInputPacket);

@@ -68,7 +68,7 @@ public class CandidatePicsReceiver extends Thread {
 			while (streamIsUp) { // Keep listening for new pics until the terminal signals that is sending the last one
 				try {
 					com.example.muondetector.Candidate candidate = (com.example.muondetector.Candidate) socketInputStream.readObject();
-					cachedThreadPoolExecutor.execute(new ConvertGrayscale(candidate.bmpPixels, candidate.particleTag)); // Create a thread that transform the pics 
+					cachedThreadPoolExecutor.execute(new ConvertGrayscale(candidate.bmpPixels, candidate.particleTag, "")); // Create a thread that transform the pics 
 																														// into a grayscale luminance map
 				} catch (EOFException e) { // If terminal has closed the stream, exit the runnable 
 					streamIsUp = false;
@@ -88,10 +88,12 @@ public class CandidatePicsReceiver extends Thread {
 		private int[] pixels;
 		private float[] grayscalePixels;
 		private int tag;
+		private String fileName;
 		
-		public ConvertGrayscale (int[] pixels, int tag) {
+		public ConvertGrayscale (int[] pixels, int tag, String fileName) {
 			this.pixels = pixels;
 			this.tag = tag;
+			this.fileName = fileName;
 			grayscalePixels = new float[pixels.length];
 		}
 
@@ -109,6 +111,7 @@ public class CandidatePicsReceiver extends Thread {
 					grayscalePixels[i] = 0.44f + (float)green / 255 * 0.44f;
 				else
 					grayscalePixels[i] = 0.88f + (float)blue / 255 * 0.12f;	
+				
 			}		
 			
 			// Save the map and the tag

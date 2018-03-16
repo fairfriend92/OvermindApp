@@ -25,16 +25,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class NetworkTrainer {	
-
-	// Collection of hash maps, each of which is storing for every node the array 
-	// of firing rates produced in response to a specific input. 
-	private static ArrayList<ConcurrentHashMap<Integer, float[]>> taggedFiringRateMaps = 
-			new ArrayList<ConcurrentHashMap<Integer, float[]>>(5);
-	
 	// Stores for each node the firing rates in response to an input that must be classified.
 	private static ConcurrentHashMap<Integer, float[]> untaggedFiringRateMap;  
-	
-	private static ConcurrentHashMap<Integer, float[]> oldFiringRateMap;
 
 	// Number that keeps track of which kind of input is being used to stimulate the network.  
 	private static volatile int currentInputClass = MuonTeacherConst.UNDETERMINED;
@@ -91,15 +83,10 @@ public class NetworkTrainer {
         		        			
           			float[] meanFiringRates = null;
           			
-          			if (isTrainingSession) {
-              			// Retrieve from the collection of hash maps the one associated to the current input class. 
-              			// From that hash map, retrieve the array associated to the node identified by ipHashCode. 
-            			meanFiringRates = taggedFiringRateMaps.get(currentInputClass).get(ipHashCode);	
-        			} else {
-        				// Vector of the firing rates that must be compared. 
+          			if (!isTrainingSession) {
+          				// Vector of the firing rates that must be compared. 
         				meanFiringRates = untaggedFiringRateMap.get(ipHashCode);  
-        			}
-          			
+        			}           			
         			assert meanFiringRates != null;        			
         			
         			// Iterating over the the neurons that produced the spike trains.
@@ -212,11 +199,13 @@ public class NetworkTrainer {
         		        		
         		// Create a new Runnable to do any kind of post-processing on the spikes sent
         		// by the terminal.
-				try {
-					threadsDispatcherQueue.offer(new WorkerThread(spikesPacket, spikesBuffer), MuonTeacherConst.DELTA_TIME / 2, TimeUnit.MILLISECONDS);
-				} catch (InterruptedException e) {
-					e.printStackTrace();
-				}               		
+        		if (!isTrainingSession) {
+					try {
+						threadsDispatcherQueue.offer(new WorkerThread(spikesPacket, spikesBuffer), MuonTeacherConst.DELTA_TIME / 2, TimeUnit.MILLISECONDS);
+					} catch (InterruptedException e) {
+						e.printStackTrace();
+					}               		
+        		}
 	    	}
 	    	
 	    	/* Shutdown executor. */
@@ -243,6 +232,17 @@ public class NetworkTrainer {
 	 */
 	
 	boolean checkTopology() {
+		
+		/*
+		 * Check that the number of excitatory nodes is equal to that of the 
+		 * types of particles into which the pictures can be classified.
+		 */
+		
+		if (Main.excNodes.size() < MuonTeacherConst.NUM_OF_PARTICLES_TYPES) {
+			Main.updateLogPanel("Too few exc nodes", Color.RED);
+			return false;
+		}
+		
 		for (Node excNode : Main.excNodes) {
 			
 			/*
@@ -338,8 +338,7 @@ public class NetworkTrainer {
 	 */
 	
 	boolean setupLoadWeights() {
-		final boolean STREAM_INTERRUPTED = false, 
-				SETUP_ERROR = false;
+		final boolean SETUP_ERROR = false;
 		final boolean OPERATION_SUCCESSFUL = true;
 		
 		// Create a Terminal object holding all the info regarding this server,
@@ -352,16 +351,6 @@ public class NetworkTrainer {
 		thisApp.serverIP = thisApp.ip;
 		thisApp.natPort = MuonTeacherConst.APP_UDP_PORT;
 		
-		/*
-		 * If the hash maps have never been created before, do so using the current 
-		 * number of excitatory nodes as size (if more nodes are added the maps will
-		 * grow dynamically). 
-		 */
-		
-		for (int i = 0; i < 5; i++) {
-			taggedFiringRateMaps.add(new ConcurrentHashMap<>(Main.excNodes.size()));
-		}				
-		
 		for (Node excNode : Main.excNodes) {
 			// Firstly reset the connections of the terminal if these had been modified before. 
 			Main.removeThisAppFromConnections(excNode.terminal);
@@ -370,31 +359,10 @@ public class NetworkTrainer {
 			excNode.terminal.presynapticTerminals.add(thisApp);
 			excNode.terminal.postsynapticTerminals.add(thisApp);
 			excNode.terminal.numOfDendrites -= MuonTeacherConst.MAX_PIC_PIXELS;
-			
-			/*
-			 * Create a new array for each node to store the firing rates 
-			 * of the neurons if necessary.
-			 */
-			
-			for (ConcurrentHashMap<Integer, float[]> hashMap : taggedFiringRateMaps) {
-				if (!hashMap.containsKey(excNode.physicalID))
-					hashMap.put(excNode.physicalID, new float[excNode.terminal.numOfNeurons]);
-			}		
-			
+					
 			VirtualLayerManager.unsyncNodes.add(excNode);			
 		}		
-		/*
-		for (Node inhNode : Main.inhNodes) {
-			// Firstly reset the connections of the terminal if these had been modified before. 
-			Main.removeThisAppFromConnections(inhNode.terminal);
-			
-			// Connect the excNode to the application. 
-			inhNode.terminal.presynapticTerminals.add(thisApp);
-			inhNode.terminal.numOfDendrites -= MuonTeacherConst.MAX_PIC_PIXELS;
-						
-			VirtualLayerManager.unsyncNodes.add(inhNode);			
-		}	
-		*/
+
 		Future<Boolean> future = VirtualLayerManager.syncNodes();		
 		
 		// Wait for the synchronization process to be completed before proceeding.
@@ -502,19 +470,11 @@ public class NetworkTrainer {
 			sparseWeights = new byte[sparseArrayLength];
 			float[] sparseWeightsFloat = new float[sparseArrayLength];
 			byte[] updateWeightsFlags = new byte[sparseArrayLength];				
-			
-			// Number of neurons that each group associated with a particle type has.
-			int neuronsPerGroup = excNode.terminal.numOfNeurons / MuonTeacherConst.NUM_OF_PARTICLES_TYPES; 
-			
+						
 			for (int neuronIndex = 0; neuronIndex < excNode.terminal.numOfNeurons; neuronIndex++) {
 				int weightOffset = 0;
 				
-				// Index of the group of neurons to which the current neuron belongs. 
-				int neuronsGroupNumber = neuronIndex / neuronsPerGroup;
-				
 				for (com.example.overmind.Terminal presynapticTerminal : excNode.terminal.presynapticTerminals) {
-					// Is the current connection a lateral connection?
-					boolean isLateralConnection = presynapticTerminal.equals(excNode.terminal);
 					
 					/*
 					 * The presynaptic connection can either be excitatory or inhibitory,
@@ -528,38 +488,28 @@ public class NetworkTrainer {
 							weightSign = -1;
 					}
 					
+					boolean presynTerminalIsApp = presynapticTerminal.ip.equals(presynapticTerminal.serverIP);
+					
 					float probOfConnection;
 					if (weightSign == -1) 
 						probOfConnection = MuonTeacherConst.INH_TO_EXC_PERCT;
-					else if (presynapticTerminal.ip.equals(presynapticTerminal.serverIP))
+					else if (presynTerminalIsApp)
 						probOfConnection = 1.0f;
 					else 
 						probOfConnection = MuonTeacherConst.EXC_TO_INH_PERCT;
 					
-					for (int weightIndex = 0; weightIndex < presynapticTerminal.numOfNeurons; weightIndex++) {
-						
-						/*
-						 * The weights of a lateral connection that corresponds to a different group of neurons to the one
-						 * to which the current neuron belongs should be zero and should not be updated. The weightMask is
-						 * a multiplicative factor that can be used to this purpose. 
-						 */
-						
-						int weightMask = isLateralConnection & 
-								weightIndex / neuronsPerGroup != neuronsGroupNumber ?
-										0 : 1;
-						
+					for (int weightIndex = 0; weightIndex < presynapticTerminal.numOfNeurons; weightIndex++) {												
 						float random = randomNumber.nextFloat();
 						float weight = random < probOfConnection ? random : 0.0f;
 						
 						sparseWeightsFloat[neuronIndex * activeSynPerNeuron + weightIndex + weightOffset] = 
-								weightMask * weightSign * weight;
+								weightSign * weight;
 						
 						sparseWeights[neuronIndex * activeSynPerNeuron + weightIndex + weightOffset] = 
 								(byte)(sparseWeightsFloat[neuronIndex * activeSynPerNeuron + weightIndex + weightOffset] / MuonTeacherConst.MIN_WEIGHT);
 	        			
 						updateWeightsFlags[neuronIndex * activeSynPerNeuron + weightIndex + weightOffset] = 
-	        					weightSign == -1 | weightMask == 0 ? 
-	        					DONT_UPDATE_WEIGHT : UPDATE_WEIGHT;
+	        					weightSign == -1 ? DONT_UPDATE_WEIGHT : UPDATE_WEIGHT;
 					}
 					
 					weightOffset += presynapticTerminal.numOfNeurons;
@@ -608,9 +558,8 @@ public class NetworkTrainer {
 		for (Node excNode : Main.excNodes) {
 			int activeSynPerNeuron = excNode.originalNumOfSynapses - excNode.terminal.numOfDendrites;
 			int sparseArrayLength = activeSynPerNeuron * excNode.terminal.numOfNeurons;
-			byte[] updateWeightsFlags = new byte[sparseArrayLength]; // Default value for the bit is unset. 		
 						
-			excNode.terminal.updateWeightsFlags = updateWeightsFlags;			
+			excNode.terminal.updateWeightsFlags = new byte[sparseArrayLength];
 			VirtualLayerManager.unsyncNodes.add(excNode);		
 		}
 		
@@ -618,11 +567,11 @@ public class NetworkTrainer {
 		try {
 			Boolean syncSuccessful = future.get();
 			if (!syncSuccessful) {
-				Main.updateLogPanel("Weights update interrupted", Color.RED);
+				Main.updateLogPanel("Weights reset interrupted", Color.RED);
 				return STREAM_INTERRUPTED;
 			}
 		} catch (InterruptedException | ExecutionException e) {
-			Main.updateLogPanel("Weights update interrupted", Color.RED);
+			Main.updateLogPanel("Weights reset interrupted", Color.RED);
 			return STREAM_INTERRUPTED;
 		}
 		
@@ -637,7 +586,6 @@ public class NetworkTrainer {
 		NetworkStimulator networkStimulator = new NetworkStimulator();		
 		
 		untaggedFiringRateMap = new ConcurrentHashMap<>(Main.excNodes.size());	
-		oldFiringRateMap = new ConcurrentHashMap<>(Main.excNodes.size());	
 		
 		// Give the last terminal to be updated by setSynapticWeights a little bit of time to receive the package.
 		if (isTrainingSession) {
@@ -705,21 +653,23 @@ public class NetworkTrainer {
         }   
                 
         /*
-         * Copy the candidates in one single array in a way so that candidates of 
-         * the same kind are adjacent.
-         */        
-        if (isTrainingSession) {
-	        int offset = 0;
-	        for (int i = 0; i < 5; i++) {
-	        	// The single collection of candidates of class i. 
-	        	GrayscaleCandidate[] candidatesCollection = new GrayscaleCandidate[candidatesCollections.get(i).size()];
-	        	candidatesCollection = candidatesCollections.get(i).toArray(candidatesCollection);
-	        	
-	        	System.arraycopy(candidatesCollection, 0, grayscaleCandidates, offset, candidatesCollections.get(i).size());
-	        	offset += candidatesCollections.get(i).size();
+         * During the training session order the pictures so that pictures of different
+         * types are interleaved with each other. 
+         */
+        
+        if (isTrainingSession) {       	
+	        for (int typeIndex = 0; typeIndex < MuonTeacherConst.NUM_OF_PARTICLES_TYPES; typeIndex++) {
+	        	int classIndex = typeIndex == 0 ? 1 : 3;
+	        	Iterator<GrayscaleCandidate> candidatesIterator = candidatesCollections.get(classIndex).iterator();
+	        	int offset = 0;
+	        	while (candidatesIterator.hasNext()) {
+	        		grayscaleCandidates[typeIndex + offset * MuonTeacherConst.NUM_OF_PARTICLES_TYPES] = 
+	        				candidatesIterator.next();
+	        		offset++;	        		
+	        	}
 	        }   
         }
-              
+    			
         /*
          * Send the retrieved grayscale candidates to the network.
          */
@@ -728,7 +678,7 @@ public class NetworkTrainer {
         GrayscaleCandidate[] inputCandidates = new GrayscaleCandidate[Main.excNodes.size()];
       
         // Create an array of nodes from the collection. 
-        Node[] inputLayers = new Node[Main.excNodes.size()];
+        Node[] inputLayers = new Node[Main.excNodes.size()];        
         for (int i = 0; i < Main.excNodes.size(); i++) {
         	inputLayers[i] = Main.excNodes.get(i);
         }
@@ -738,13 +688,30 @@ public class NetworkTrainer {
     	spikesReceiver.start();      
     	
     	float rightGuess = 0.0f, totalGuess = 0.0f, deltaFactor = 1.0f;
+    	float[] dummyInput = new float[MuonTeacherConst.MAX_PIC_PIXELS];
+    	Arrays.fill(dummyInput, 0.0f);
     	long postprocessingTime = 0; // Time take to post-process the firing rate vectors collected. 
+    	GrayscaleCandidate dummyCandidate = // A Candidate object which contains a picture completely blank.
+    			new GrayscaleCandidate(dummyInput, MuonTeacherConst.UNDETERMINED);
     	
     	for (GrayscaleCandidate candidate : grayscaleCandidates) {
         	int allowedIterations = MuonTeacherConst.MIN_ITERATIONS;
-
-    		boolean sampleAnalysisFinished = false;   		
-        	Arrays.fill(inputCandidates, candidate); // In this implementation the inputs of the nodes are all the same.	        		    		
+    		boolean sampleAnalysisFinished = false;  
+    		
+    		/*
+    		 * Prepare the inputs for this iteration. 
+    		 * If this is the training phase, all nodes receive a blank input except for 
+    		 * the population corresponding to the particle type of the current candidate.
+    		 * 
+    		 * If this is not the training session, all the nodes receive the same picture. 
+    		 */
+    		
+    		if (isTrainingSession) {
+    			Arrays.fill(inputCandidates, dummyCandidate);
+    			inputCandidates[candidate.particleTag == 1 ? 0 : 1] = candidate; // TODO: Make function to convert tag into index.
+    		} else {
+    			Arrays.fill(inputCandidates, candidate);   
+    		}
     		
     		for (Node excNode : Main.excNodes) { 
     			// If this is not a training session create additional arrays for each node to store 
@@ -752,19 +719,13 @@ public class NetworkTrainer {
     			if (!isTrainingSession) {
     				untaggedFiringRateMap.put(excNode.physicalID, new float[excNode.terminal.numOfNeurons]);
     			}
-    			// Otherwise create arrays to store the firing rate of a certain input class at the point
-    			// in time before a new input was sent. 
-    			else {
-    				oldFiringRateMap.put(excNode.physicalID, new float[excNode.terminal.numOfNeurons]); // TODO: This could be done outside the for (candidate) loop.
-    			}
     		}
     		    		
     		int iteration = 0, // Times the same input has been presented to the network. 
     				guessedClass = -1; 
-    		float finalProbability = 0.0f; // Probability associated with the guessed class.    
-    		float oldFiringRateDelta = 0.0f; // Firing rate delta of the last iteration. 
-    		float[] meanProbabilities = new float[5]; // Temporary probs.
-    		int[] meanSamples = new int[5]; // Number of samples used to average the temp probs. 
+    		double finalProbability = 0.0f; // Probability associated with the guessed class.    
+    		double[] meanProbabilities = new double[MuonTeacherConst.NUM_OF_PARTICLES_TYPES]; // Temporary probs.
+    		int[] meanSamples = new int[MuonTeacherConst.NUM_OF_PARTICLES_TYPES]; // Number of samples used to average the temp probs. 
         	long postprocessingStartTime = 0; // Time at which the post-processing start.    		    
     		
     		// Break the loop if the analysis has been interrupted or the application shutdown or 
@@ -772,40 +733,27 @@ public class NetworkTrainer {
         	while ( !analysisInterrupt.get() & !shutdown & !sampleAnalysisFinished) {
         		currentInputClass = candidate.particleTag;   		
         		iteration++; 
-        		
-	        	// Pick up a random node to gauge the progression of the learning algorithm. 
-	        	int nodeID = -1;
-	        	if (!shutdown)
-	        		nodeID = Main.excNodes.get(0).physicalID; // TODO: Do the same thing for every excitatory node. 
-	        	int numOfNeurons = Main.excNodes.get(0).terminal.numOfNeurons;
-        		
-	        	// Save the prototypical firing rate vector before it changes in response to the 
-	        	// current stimulation.
-	        	if (isTrainingSession) {
-	        		float[] oldFiringRate = oldFiringRateMap.get(nodeID);
-	        		float[] taggedFiringRate = taggedFiringRateMaps.get(currentInputClass).get(nodeID);
-	        		System.arraycopy(taggedFiringRate, 0, oldFiringRate, 0, oldFiringRate.length);
-	        	}
 	        	
 	        	long tmpTime = postprocessingStartTime != 0 ?  
 	        		(System.nanoTime() - postprocessingStartTime) / MuonTeacherConst.MILLS_TO_NANO_FACTOR : 0;
 	        	postprocessingTime = tmpTime < MuonTeacherConst.DELTA_TIME ? MuonTeacherConst.DELTA_TIME  : tmpTime;
         		
+	        	float pauseLength = isTrainingSession ? 0 : MuonTeacherConst.PAUSE_LENGTH;
+	        	
 	        	// Stimulate the input layers with the candidate grayscale map.
 	        	// TODO: Handle disconnection of node during stimulation.
         		ArrayList<Future<?>> inputSenderFutures = 
 	        			networkStimulator.stimulateWithLuminanceMap(
-	        					MuonTeacherConst.STIMULATION_LENGTH, MuonTeacherConst.PAUSE_LENGTH, MuonTeacherConst.DELTA_TIME, inputLayers, inputCandidates);  
+	        					MuonTeacherConst.STIMULATION_LENGTH, pauseLength, MuonTeacherConst.DELTA_TIME, inputLayers, inputCandidates);  
 	        	if (inputSenderFutures == null) {
 	        		Main.updateLogPanel("Error occurred during the stimulation", Color.RED);
 	        		return ERROR_OCCURRED;
 	        	}        	
-	        	
-        		        						        	
+	        	  						        	
 	        	boolean trainingDone = false, sampleClassified = false; // Flags that govern the flow. 
 	        	
 	        	/*
-	        	 * Put this thread to sleep while the input is being sent but wake up before the all the inputs
+	        	 * Put this thread to sleep while the input is being sent but wake up before all the inputs
 	        	 * have been sent so that there is still time to do a little bit of post-processing. 
 	        	 */
 	        	
@@ -819,66 +767,52 @@ public class NetworkTrainer {
 	        	postprocessingStartTime = System.nanoTime();
 	        	
 	        	if (!isTrainingSession & !shutdown) {
-	        		// Vector of the firing rates that must be compared. 
-    				float[] untaggedFiringRate = untaggedFiringRateMap.get(nodeID); 
+	        		// Get the firing rates vector of all the nodes, 
+	        		// each of which corresponds to a different type of particle.
+	        		float[][] untaggedFiringRates = new float[MuonTeacherConst.NUM_OF_PARTICLES_TYPES][];
+	        		for (int typeIndex = 0; typeIndex < MuonTeacherConst.NUM_OF_PARTICLES_TYPES; typeIndex++) {
+	        			untaggedFiringRates[typeIndex] = untaggedFiringRateMap.get(Main.excNodes.get(typeIndex).physicalID);
+	        		}
+   					
+	        		/*
+	        		 * Compute which of the node presents the highest activity.
+	        		 */
+	        		
+	        		int highestRateNodeNumber = 0;
+    				double highestRateVectorLength = 0.0f, totalLength = 0.0f;    	
+    				double[] vectorLengths = new double[MuonTeacherConst.NUM_OF_PARTICLES_TYPES];
     				
-    				// Float vector with each element indicating how similar the firing rate is to that of the relative class.         				
-    				float[] distances = new float[5];     
-    				
-    				// Double vector storing the different classes of firing rates that untaggedFiringRate can belong to.         				
-    				float[][] taggedFiringRates = new float[5][];      				
-    				for (int i = 0; i < 5; i++)
-    					taggedFiringRates[i] = taggedFiringRateMaps.get(i).get(nodeID); 
-
-    				// Compute the distance between untaggedFiringRates and the class specific firing rate vectors.
-					for (int classIndex = 0; classIndex < 5; classIndex++) {
+					for (int typeIndex = 0; typeIndex < MuonTeacherConst.NUM_OF_PARTICLES_TYPES; typeIndex++) {
+						int numOfNeurons = Main.excNodes.get(typeIndex).terminal.numOfNeurons;
 						for (int neuronIndex = 0; neuronIndex < numOfNeurons; neuronIndex++) {
-    						distances[classIndex] +=
-    						(float)Math.pow(taggedFiringRates[classIndex][neuronIndex] - untaggedFiringRate[neuronIndex], 2); // TODO: Use double instead of float. 
+    						vectorLengths[typeIndex] += Math.pow(untaggedFiringRates[typeIndex][neuronIndex], 2); 
 						}
-						distances[classIndex] = (float)Math.sqrt(distances[classIndex]);
+						vectorLengths[typeIndex] = Math.sqrt(vectorLengths[typeIndex]);
+						totalLength += vectorLengths[typeIndex];
+						if (vectorLengths[typeIndex] > highestRateVectorLength) {
+							highestRateVectorLength = vectorLengths[typeIndex];
+							highestRateNodeNumber = typeIndex;
+						}
     				}    			
     				
+					// The probability with which the guess has been made. 
+    				meanProbabilities[highestRateNodeNumber] += highestRateVectorLength / totalLength;
+    				meanSamples[highestRateNodeNumber]++; // How many times the same class has been associated with the input. 
+					
     				/*
     				 * Compute which class best describes the current input and the probability related
     				 * to the guess. 
-    				 * 
-    				 * If the input has been presented a number of times < allowedIterations, then keep 
-    				 * track of how many times each one of the classes is associated with the input and the probability
-    				 * with which that happens every time. 
-    				 * Otherwise compute the final probability by averaging over the probabilities with which every 
-    				 * class has been associated with the input at every iteration. 
     				 */
     				
-    				if (iteration < allowedIterations) {
-	    				float minDistance = distances[1], totalDistance = 0.0f;    		
-	    				int tentativeClass = 1;
-	    				
-	    				// Compute which of the class firing rate vectors is closer to the one produced.
-	    				for (int classIndex = 0; classIndex < 5; classIndex++) {  
-	    					if (classIndex == 1 | classIndex == 3) { // TODO: Temp solution until we use more pictures from all the classes. 
-		    					totalDistance += distances[classIndex];
-		    					if (distances[classIndex] < minDistance) {
-		    						minDistance = distances[classIndex];
-		    						tentativeClass = classIndex;
-		    					}
-	    					}
-	    				}    
-	    				
-	    				// The probability with which the guess has been made. 
-	    				meanProbabilities[tentativeClass] += 1 - minDistance / totalDistance;
-	    				meanSamples[tentativeClass]++; // How many times the same class has been associated with the input. 
-    				} else {
-    					float maxProbability = meanProbabilities[1];
+    				if (iteration >= allowedIterations) {
+    					double maxProbability = meanProbabilities[0];
     					int tentativeClass = 1;
     					
     					// Compute which probability is the higher among the different classes. 
-    					for (int classIndex = 0; classIndex < 5; classIndex++) {
-    						if (classIndex == 1 | classIndex == 3) { // TODO: Temp solution until all classes are present.
-	    						if (meanProbabilities[classIndex] > maxProbability) {
-	    							maxProbability = meanProbabilities[classIndex];
-	    							tentativeClass = classIndex;
-	    						}
+    					for (int typeIndex = 0; typeIndex < MuonTeacherConst.NUM_OF_PARTICLES_TYPES; typeIndex++) {
+    						if (meanProbabilities[typeIndex] >= maxProbability) {
+    							maxProbability = meanProbabilities[typeIndex];
+    							tentativeClass = typeIndex;
     						}
     					}
     					
@@ -892,58 +826,11 @@ public class NetworkTrainer {
     						allowedIterations += MuonTeacherConst.ITERATION_INCREMENT;
     					}    					
     				}
-	        	} else if (!shutdown) {	     	
-	        		// Compute how much the prototype firing rate vector for the current class 
-		        	// and the chosen node has changed.
-		        	float[] oldFiringRate = oldFiringRateMap.get(nodeID);
-		        	float[] newFiringRate = taggedFiringRateMaps.get(currentInputClass).get(nodeID);
-		        	float firingRateDelta = 0.0f, deltaIncrease = 0.0f; // Variable used to gauge how the learning is proceeding.
-		        	for (int i = 0; i < newFiringRate.length; i++) {
-		        		firingRateDelta += Math.pow(newFiringRate[i] - oldFiringRate[i], 2); 
-		        	}
-		        	
-		        	// Update the old firing rate vector.
-		        	System.arraycopy(newFiringRate, 0, oldFiringRate, 0, newFiringRate.length);	
-		        	oldFiringRateMap.put(nodeID, oldFiringRate); // TODO: Unnecessary? 
-
-		        	// Compute how much the distance to the stereotypical vector has changed in 
-		        	// proportion to the distance computed at the last iteration.
-		        	firingRateDelta = (float) Math.sqrt(firingRateDelta);
-		        	deltaIncrease = oldFiringRateDelta == 0.0f ? // Is this the for iteration for the current candidate?
-		        			1.0f : Math.abs(1 - firingRateDelta / oldFiringRateDelta); // If so the fr delta has not been computed yet. 
-		        	oldFiringRateDelta = firingRateDelta;
-		        	
-		        	/*
-		        	 * A new input is selected only if the firing rates of the neurons in response to
-		        	 * the current one stabilize, which means that the vector of firing rates, sampled
-		        	 * at the beginning and at the end of the i-th iteration, must be roughly the same.
-		        	 * 
-		        	 * To ascertain this, the difference between the vector at the 2 points in time is computed
-		        	 * and it is compared with a moving threshold. 
-		        	 */
-		        	
-		        	// If the increase is under the threshold.
-		        	if (deltaIncrease < MuonTeacherConst.BASE_DELTA * deltaFactor) {
-		        		deltaFactor = deltaFactor - 0.1f > MuonTeacherConst.MIN_FACTOR ? 
-		        				deltaFactor - 0.1f : deltaFactor; // Lower the threshold.
-		        		trainingDone = true;
-		        	} else if (iteration >= allowedIterations) { // If the threshold is too high.
-		        		if (deltaFactor == MuonTeacherConst.MAX_FACTOR) { // Make the threshold higher if possible.
-		        			allowedIterations = allowedIterations + MuonTeacherConst.ITERATION_INCREMENT < MuonTeacherConst.MAX_ITERATIONS ?
-		        					allowedIterations + MuonTeacherConst.ITERATION_INCREMENT : MuonTeacherConst.MAX_ITERATIONS;
-		        		} else { // If not, iterate over the same input a higher number of times. 
-		        			deltaFactor = deltaFactor + 0.1f < MuonTeacherConst.MAX_FACTOR ?
-		        					deltaFactor + 0.1f : MuonTeacherConst.MAX_FACTOR;
-		        		}
-		        	}		  
-		        	
-		        	//trainingDone = trainingDone | iteration == MuonTeacherConst.MAX_ITERATIONS;
-		        	
+	        	} else if (!shutdown) {			        	
 		        	trainingDone = (currentInputClass == MuonTeacherConst.TRACK & iteration == 1) | 
 		        			(currentInputClass == MuonTeacherConst.SPOT & iteration == 1);
 		        		        			        			        	
-		        	System.out.println("deltaIncrease " + deltaIncrease + " deltaFactor " + 
-		        	deltaFactor + " allowedIterations " + allowedIterations + " iteration " + iteration + " class " + currentInputClass);   
+		        	System.out.println("Class " + currentInputClass);   
 	        	}	 
 	        		        	
 	        	// Wait for all the InputSender threads to finish by retrieving their Future objects.		
@@ -960,6 +847,7 @@ public class NetworkTrainer {
         	/* [End of while ( !analysisInterrupt.get() & !shutdown & !sampleAnalysisFinished)] */
         	
         	totalGuess++;
+        	guessedClass = guessedClass == 0 ? 1 : 3; // TODO: Make function that convert tag in type class.
         	if (guessedClass == currentInputClass) {
         		rightGuess++;        		
         	}
@@ -1002,7 +890,6 @@ public class NetworkTrainer {
     	}
     	networkStimulator.socketsHashMap.clear();    	
     	untaggedFiringRateMap.clear();   
-    	oldFiringRateMap.clear();
           
 		return terminationSuccessful;				
 	}

@@ -74,7 +74,7 @@ public class Main {
 	/* Other objects */
 	
 	private static boolean networkWasTrained = false;
-	private static boolean isTraining = false; // Flag that tells if the train button has been pressed and if the network is being trained. 
+	static boolean isTraining = false; // Flag that tells if the train button has been pressed and if the network is being trained. 
 
 	public static void main(String[] args) {
 		MainFrame.main(args); // Start the Overmind server. 
@@ -423,14 +423,7 @@ public class Main {
 							Main.updateLogPanel("Weights update interrupted", Color.RED);
 						}
 						
-						/*
-						 * Once the weights have been loaded, the stereotypical firing rate vectors must
-						 * be built again using the response of the network now that the weights have
-						 * changed.
-						 */
-						
 						disablePanel(); 
-						isTraining = true;
 						networkTrainerThread = new Thread() {
 							
 							/*
@@ -695,7 +688,7 @@ public class Main {
         	
         	// If the tag could be determined, run the Runnable that computes the luminance map. 
         	if (fileNameIsValid) {
-        		CandidatePicsReceiver.ConvertGrayscale convertGrayscale = new CandidatePicsReceiver.ConvertGrayscale(pixels, tag);
+        		CandidatePicsReceiver.ConvertGrayscale convertGrayscale = new CandidatePicsReceiver.ConvertGrayscale(pixels, tag, fileName);
         		convertGrayscale.run();
         		pic.delete();
         	}
