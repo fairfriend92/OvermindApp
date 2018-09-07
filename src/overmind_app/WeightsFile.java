@@ -1,5 +1,7 @@
+package overmind_app;
 import java.io.Serializable;
 import java.util.ArrayList;
+import overmind_server.*;
 
 /**
  * Class that creates a file which stores the weights of all the nodes used by the program.

@@ -1,3 +1,4 @@
+package overmind_app;
 
 public class MuonTeacherConst {	    
     /* Particle constants */

@@ -1,3 +1,5 @@
+package overmind_app;
+
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
@@ -30,8 +32,10 @@ import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.ListSelectionModel;
 
+import overmind_server.*;
+
 public class Main {
-	
+		
 	/* Collections of nodes */
 	
 	static ArrayList<Node> excNodes = new ArrayList<>(); // Nodes with excitatory neurons only 

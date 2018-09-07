@@ -1,3 +1,4 @@
+package overmind_app;
 import java.io.Serializable;
 
 public class GrayscaleCandidate implements Serializable {

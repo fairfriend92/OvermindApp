@@ -1,7 +1,8 @@
+package overmind_app;
 import java.awt.Color;
+import overmind_server.*;
 import java.io.File;
 import java.io.FileInputStream;
-import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.net.DatagramPacket;
