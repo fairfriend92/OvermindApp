@@ -21,7 +21,7 @@ public class WeightsFile implements Serializable {
 			Node excNode = excNodes.get(i);
 						
 			excNodesWeights[i] = new NodeWeights(
-					weightsFloatToByte(VirtualLayerManager.weightsTable.get(excNode.virtualID)),
+					weightsFloatToByte(VirtualLayerManager.weightsTable.get(excNode.id)),
 					excNode.terminal.numOfSynapses, 
 					excNode.terminal.numOfNeurons);
 		}
@@ -32,7 +32,7 @@ public class WeightsFile implements Serializable {
 					inhNode.terminal.numOfNeurons;
 			
 			inhNodesWeights[i] = new NodeWeights(
-					weightsFloatToByte(VirtualLayerManager.weightsTable.get(inhNode.virtualID)),
+					weightsFloatToByte(VirtualLayerManager.weightsTable.get(inhNode.id)),
 					inhNode.terminal.numOfSynapses, 
 					inhNode.terminal.numOfNeurons);
 		}

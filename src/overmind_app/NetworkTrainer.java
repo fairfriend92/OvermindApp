@@ -80,14 +80,27 @@ public class NetworkTrainer {
 			@Override
 			public void run() {
         		if (spikesPacket != null) {     			
-        			int ipHashCode = (spikesPacket.getAddress().toString().substring(1) + "/" + spikesPacket.getPort()).hashCode();          			
-        			int numOfNeurons = VirtualLayerManager.nodesTable.get(ipHashCode).terminal.numOfNeurons;         		
+        			String ip = spikesPacket.getAddress().toString().substring(1);
+        			int natPort = spikesPacket.getPort();
+        			byte[] firstHalf = ip.getBytes();
+    		    	byte secondHalf = new Integer(natPort).byteValue();
+    		    	byte[] data = new byte[firstHalf.length + 1];
+    		    	System.arraycopy(firstHalf, 0, data, 0, firstHalf.length);
+    		    	data[firstHalf.length] = secondHalf;
+    		    	
+    		    	// Implementation of the FNV-1 algorithm
+    		    	int hash = 0x811c9dc5;    	
+    		    	for (int i = 0; i < data.length; i++) {
+    		    		hash ^= (int)data[i];
+    		    		hash *= 16777619;
+    		    	}		  
+        			int numOfNeurons = VirtualLayerManager.nodesTable.get(VirtualLayerManager.physical2VirtualID.get(hash)).terminal.numOfNeurons;         		
         		        			
           			float[] meanFiringRates = null;
           			
           			if (!isTrainingSession) {
           				// Vector of the firing rates that must be compared. 
-        				meanFiringRates = untaggedFiringRateMap.get(ipHashCode);  
+        				meanFiringRates = untaggedFiringRateMap.get(hash);  
         			}           			
         			assert meanFiringRates != null;        			
         			
@@ -454,7 +467,7 @@ public class NetworkTrainer {
 				}
 			}			
 			
-			VirtualLayerManager.weightsTable.put(inhNode.virtualID, sparseWeightsFloat);			
+			VirtualLayerManager.weightsTable.put(inhNode.id, sparseWeightsFloat);			
 				
 			inhNode.terminal.newWeights = sparseWeights;
 			inhNode.terminal.newWeightsIndexes = new int[] {0};
@@ -518,7 +531,7 @@ public class NetworkTrainer {
 				}
 			}			
 			
-			VirtualLayerManager.weightsTable.put(excNode.virtualID, sparseWeightsFloat);
+			VirtualLayerManager.weightsTable.put(excNode.id, sparseWeightsFloat);
 			
 			excNode.terminal.newWeights = sparseWeights;
 			excNode.terminal.newWeightsIndexes = new int[] {0};
@@ -719,7 +732,7 @@ public class NetworkTrainer {
     			// If this is not a training session create additional arrays for each node to store 
 	    		// the firing rates of their neurons in response to the samples. 
     			if (!isTrainingSession) {
-    				untaggedFiringRateMap.put(excNode.physicalID, new float[excNode.terminal.numOfNeurons]);
+    				untaggedFiringRateMap.put(excNode.id, new float[excNode.terminal.numOfNeurons]);
     			}
     		}
     		    		
@@ -773,7 +786,7 @@ public class NetworkTrainer {
 	        		// each of which corresponds to a different type of particle.
 	        		float[][] untaggedFiringRates = new float[MuonTeacherConst.NUM_OF_PARTICLES_TYPES][];
 	        		for (int typeIndex = 0; typeIndex < MuonTeacherConst.NUM_OF_PARTICLES_TYPES; typeIndex++) {
-	        			untaggedFiringRates[typeIndex] = untaggedFiringRateMap.get(Main.excNodes.get(typeIndex).physicalID);
+	        			untaggedFiringRates[typeIndex] = untaggedFiringRateMap.get(Main.excNodes.get(typeIndex).id);
 	        		}
    					
 	        		/*

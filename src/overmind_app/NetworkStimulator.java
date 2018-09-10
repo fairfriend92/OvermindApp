@@ -120,7 +120,7 @@ public class NetworkStimulator {
 		@Override
 		public void run() {						
 			// Socket used to send the input to the node. 
-			DatagramSocket outputSocket = socketsHashMap.get(inputLayer.physicalID);
+			DatagramSocket outputSocket = socketsHashMap.get(inputLayer.id);
 		
 			// If necessary create the socket and put it in the hash map.
 			if (outputSocket == null) {
@@ -130,7 +130,7 @@ public class NetworkStimulator {
 		        } catch (SocketException e) {
 		        	e.printStackTrace();
 		        }
-		        socketsHashMap.put(inputLayer.physicalID, outputSocket);
+		        socketsHashMap.put(inputLayer.id, outputSocket);
 			}
 	        
 	        // Address and nat port of the terminal to which the input should be sent.
