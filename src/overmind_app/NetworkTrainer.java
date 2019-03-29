@@ -368,12 +368,12 @@ public class NetworkTrainer {
 		
 		for (Node excNode : Main.excNodes) {
 			// Firstly reset the connections of the terminal if these had been modified before. 
-			Main.removeThisAppFromConnections(excNode.terminal);
+			//Main.removeThisAppFromConnections(excNode.terminal);
 			
 			// Connect the excNode to the application. 
-			excNode.terminal.presynapticTerminals.add(thisApp);
+			//excNode.terminal.presynapticTerminals.add(thisApp);
 			excNode.terminal.postsynapticTerminals.add(thisApp);
-			excNode.terminal.numOfDendrites -= MuonTeacherConst.MAX_PIC_PIXELS;
+			//excNode.terminal.numOfDendrites -= MuonTeacherConst.MAX_PIC_PIXELS;
 					
 			VirtualLayerManager.unsyncNodes.add(excNode);			
 		}		
@@ -661,7 +661,7 @@ public class NetworkTrainer {
         		grayscaleCandidates[i] = grayscaleCandidate; // Unnecessary if the candidates must be ordered by class. Comment it out.        		
         		
         		// Add the last candidate to the ArrayList corresponding to its kind. 
-        		candidatesCollections.get(grayscaleCandidate.particleTag).add(grayscaleCandidate);
+        		candidatesCollections.get(grayscaleCandidate.lable).add(grayscaleCandidate);
         	} catch (ClassNotFoundException | IOException e) {
         		e.printStackTrace();
         	} 
@@ -723,7 +723,7 @@ public class NetworkTrainer {
     		
     		if (isTrainingSession) {
     			Arrays.fill(inputCandidates, dummyCandidate);
-    			inputCandidates[candidate.particleTag == 1 ? 0 : 1] = candidate; // TODO: Make function to convert tag into index.
+    			inputCandidates[candidate.lable == 1 ? 0 : 1] = candidate; // TODO: Make function to convert tag into index.
     		} else {
     			Arrays.fill(inputCandidates, candidate);   
     		}
@@ -746,7 +746,7 @@ public class NetworkTrainer {
     		// Break the loop if the analysis has been interrupted or the application shutdown or 
     		// the sample has been thoroughly analyzed. 
         	while ( !analysisInterrupt.get() & !shutdown & !sampleAnalysisFinished) {
-        		currentInputClass = candidate.particleTag;   		
+        		currentInputClass = candidate.lable;   		
         		iteration++; 
 	        	
 	        	long tmpTime = postprocessingStartTime != 0 ?  
@@ -868,7 +868,7 @@ public class NetworkTrainer {
         	}
         	
         	if (!isTrainingSession)
-        		System.out.println("Real class: " + candidate.particleTag + " Tentative class: " + guessedClass 
+        		System.out.println("Real class: " + candidate.lable + " Tentative class: " + guessedClass 
         				+ " finalProbability " + finalProbability + " Success rate: " + (rightGuess / totalGuess));
         }   
     	
